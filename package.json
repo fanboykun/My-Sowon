@@ -1,0 +1,23 @@
+{
+  "name": "my-sowon",
+  "version": "1.0.0",
+  "description": "MySql - Select Only What Ourselves Need",
+  "main": "src/app.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "npx tsc && node dist/app",
+    "dev:watch": "npx tsc -w",
+    "start": "node dist/app"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@types/node": "^20.11.16",
+    "mysql2": "^3.9.1"
+  }
+}
