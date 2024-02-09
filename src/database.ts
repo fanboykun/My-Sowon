@@ -1,21 +1,21 @@
-import 
-    mysql
-,{ 
+import mysql, { 
     Connection,
     Pool,
     RowDataPacket,
- }
-from "mysql2"
+} from "mysql2"
 
 import { 
     QUERY,
     config
-} from "./config"
+}  from "./config"
 
 import { 
     QUERY_HOLDER
 } from "./types"
-import { WHERE_SUB_QUERY } from "./where_sub_query"
+
+import { 
+    WHERE_SUB_QUERY
+} from "./where_sub_query"
 
 export class Database
 {
@@ -30,7 +30,7 @@ export class Database
 
     private QUERY:QUERY_HOLDER
 
-    private QUERY_TYPE : "SELECT" | "INSERT" | "UPDATE" | "DELETE" = "SELECT"
+    private QUERY_TYPE : "SELECT" | "CREATE" | "INSERT" | "UPDATE" | "DELETE" = "SELECT"
 
     constructor( connectionType: "NORMAL" | "POOL" = "NORMAL" ) {
         try {
@@ -56,6 +56,7 @@ export class Database
         }
     }
 
+    /** Create Normal Mysql.Connection Connection */
     private connect() : Connection {
         const conn = mysql.createConnection({
             host: this.database_host,
@@ -68,6 +69,7 @@ export class Database
         return conn
     }
 
+    /** Create Mysql.Pool Connection */
     private pool() : Pool {
         const conn: Pool = mysql.createPool({
             host: this.database_host,
@@ -80,6 +82,7 @@ export class Database
         return conn
     }
 
+    /** Generate statement based on QUERY_HOLDER value */
     private generateStatement(QUERY:QUERY_HOLDER): string {
         // begin generating query
         let statement = ''
@@ -95,7 +98,7 @@ export class Database
             statement += ' ' + 'FROM' + ' ' + QUERY.table   // apply table
         }
 
-        if(this.QUERY_TYPE == "INSERT") {
+        if(this.QUERY_TYPE == "CREATE") {
             let param_binder = '' 
             for(let i = 0; i < QUERY.insert.length; i++) {
                 if(i == QUERY.insert.length - 1){
@@ -108,6 +111,10 @@ export class Database
             statement = 'INSERT INTO' + ' ' + QUERY.table + ' ' + '(' + this.QUERY.insert.join(', ') + ')' + ' VALUES ' + '(' + param_binder + ')' // apply insert
         }
 
+        if(this.QUERY_TYPE == "INSERT") {
+            statement = `INSERT INTO` + ` ` + QUERY.table + ` ` + `(` + this.QUERY.insert.join(', ') + `)` + ` VALUES ` + `?` // apply insert
+        }
+
         if(QUERY.where.length > 0) {
             statement += ' ' + 'WHERE' + ' ' + QUERY.where.join(' ') // apply where
         }
@@ -118,7 +125,8 @@ export class Database
         // console.log(`generated statement: ${statement}`)
         return statement
     }
-
+    
+    /** Execute Statement */
     private execute(statement:string, parameter:unknown = null) : Promise<RowDataPacket[]> {
         return new Promise((resolve, reject) => {
             try {
@@ -137,6 +145,26 @@ export class Database
         })
     }
 
+    /** Directly pass your own query */
+    query(statement:string, param:Array<any> = null ): Promise<RowDataPacket[]> {
+        return this.execute(statement, param)
+    }
+
+    /** Get the mysql.Conenction Instance Manually write your own query */
+    getConnection() : typeof this.connection {
+        if(this.connection){
+            return this.connection
+        }else {
+            this.connection = this.connect()
+        }
+    }
+
+    /** Close Connection Manually */
+    close() : void{
+        this.connection?.end()
+    }
+
+    /** Reset the QUERY_HOLDER value */
     private reset() {
         this.QUERY = QUERY
     }
@@ -238,10 +266,27 @@ export class Database
         return this
     }
 
+    /** Sort Method */
+    orderBy(column:string, order: "ASC"|"DESC" = "ASC") : Database {
+        if(this.QUERY.table == null) {
+            throw("table is not selected")
+        }
+
+        if(this.QUERY.select != ' * ') {
+            // check if the column is in the select
+            if(!this.QUERY.select.includes(column)) {
+                throw("column is not in the select statement")
+            }
+        }
+
+        this.QUERY.order = column + ' ' + order
+        return this
+    }
+
     /** Perform insert statement */
-    create(data: { [key: string]: string } ) : Database {
+    create(data: { [key: string]: any } ) : Database {
         const columns = Object.keys(data)
-        this.QUERY_TYPE = "INSERT"
+        this.QUERY_TYPE = "CREATE"
         for(let i = 0; i < columns.length; i++) {
             this.QUERY.insert.push(columns[i])
             this.QUERY.param.push(data[columns[i]])
@@ -252,6 +297,10 @@ export class Database
     /** Perform insert statement, Batch Insert compatible */
     insert(columns:Array<string>, values:Array<any>[]) : Database {
         this.QUERY_TYPE = "INSERT"
+        
+        this.QUERY.insert.push(...columns)
+        this.QUERY.param.push([...values])
+        
         return this
     }
 
@@ -295,6 +344,20 @@ export class Database
     
             const statement =  this.generateStatement(this.QUERY)
             resolve(this.execute(statement))
+        })
+    }
+
+    /** Execute Delete, Update Query */
+    async run(): Promise<RowDataPacket[]>{
+        return new Promise((resolve, reject) => {
+            const statement =  this.generateStatement(this.QUERY)
+            const params = [...this.QUERY.param]
+            const result = this.execute(statement, params) 
+
+            if(!result) {
+                reject("query failed")
+            }
+            resolve(result)
         })
     }
 

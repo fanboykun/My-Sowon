@@ -26,13 +26,29 @@ async function testSelect(): Promise<void> {
 async function testCreate() : Promise<void> {
     const db = new Database();
     const query = await db.table('songs')
-    .create({name: "ayee", release_year: "2026"})
-    .logQuery()
+    .create({name: "tatang", release_year: "2026"})
+    .run()
+    // .logQuery()
     console.log(query)
+}
+
+async function testInsert() : Promise<void> {
+    const db = new Database();
+    const result = await db.table('songs')
+    .insert(["name", "release_year"], [
+            ["yayan", 2020],
+            ["yapan", 2021],
+            ["yasalam", 2022],
+            ["yanto", 2023],
+    ])
+    .run()
+    // .logQuery()
+    console.log(result)
 }
 
 async function main(): Promise<void> {
     // await testSelect()
-    await testCreate()
+    // await testCreate()
+    await testInsert()
 }
 main()
