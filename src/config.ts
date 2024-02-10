@@ -18,6 +18,7 @@ export const InitialQuery: QueryHolder = {
     update: [],
     delete: [],
     limit: 300,
+    offset: 0,
     where: [],
     param: [],
 }

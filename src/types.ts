@@ -1,3 +1,8 @@
+export type DatabaseConfiguration = {
+    options?: DatabaseConfig,
+    connectionType?: "NORMAL"|"POOL",
+    QueryValue : QueryHolder,
+}
 export interface QueryHolder {
     table: string;
     select:Array<string|null>|string,
@@ -5,7 +10,8 @@ export interface QueryHolder {
     insert?:Array<string|null>,
     update?:Array<string|null>,
     delete?:Array<string|null>,
-    limit?:number
+    limit?:number,
+    offset?:number,
     where?:Array<string|null>,
     param?:Array<any|null>,
 }
@@ -24,4 +30,5 @@ export type DeleteOption = {
 }
 
 export type ConnectionType = "NORMAL" | "POOL"
-export type QueryType = "SELECT" | "CREATE" | "INSERT" | "UPDATE" | "DELETE"
+export type QueryType = "SELECT" | "CREATE" | "INSERT" | "UPDATE" | "DELETE" | "SUBQUERY"
+export type SelectParam = string[] | Function;

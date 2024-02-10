@@ -1,14 +1,16 @@
 import { QueryHolder } from "./types"
 
-export class WhereSubQuery implements Where
+export class SubQuery implements SubQueryInterface
 {
     private SUBQUERY: QueryHolder
+    private is_select:boolean
 
-    constructor(subquery: QueryHolder) {
+    constructor(subquery: QueryHolder, is_select = false) {
         this.SUBQUERY = subquery;
+        this.is_select = is_select
     }
     
-    where( colum:string, operator: string, value:any) : WhereSubQuery {
+    where( colum:string, operator: string, value:any) : SubQuery {
         // check if the table is selected
         if(this.SUBQUERY.table == null) {
             throw("table is not selected")
@@ -41,7 +43,7 @@ export class WhereSubQuery implements Where
         return this
     }
 
-    orWhere( colum:string, operator: string, value:any) : WhereSubQuery {
+    orWhere( colum:string, operator: string, value:any) : SubQuery {
         // check if the table is selected
         if(this.SUBQUERY.table == null) {
             throw("table is not selected")
@@ -73,27 +75,33 @@ export class WhereSubQuery implements Where
 
         return this
     }
-}
 
-export interface Where{
-    where(colum:string, operator: string, value:any) : Where
-    orWhere(colum:string, operator: string, value:any) : Where
-}
-
-export class SelectSubQuery implements Select
-{
-    private SUBQUERY: QueryHolder
-
-    constructor(subquery: QueryHolder) {
-        this.SUBQUERY = subquery;
-    }
-
-    select(columns:string|string[]) : SelectSubQuery {
+    select(...columns:Array<string>) : SubQuery {
+        if(this.SUBQUERY.table == null) {
+            throw("table is not selected")
+        }
+    
+        if(columns.length == 0) {
+            throw("select statement is empty")
+        }
+        
+        columns.forEach(s => {
+            if(s == null) {
+                throw("select statement is empty")
+            }
+        })
+        
+        if( this.SUBQUERY.select != '*' && this.SUBQUERY.select.length > 1) {
+            throw("the select statement already filled")
+        }
         this.SUBQUERY.select = columns
+        // this.QueryType = "SELECT"
         return this
     }
 }
 
-export interface Select {
-    select(columns:string|string[]) : Select
+export interface SubQueryInterface{
+    where(colum:string, operator: string, value:any) : SubQueryInterface
+    orWhere(colum:string, operator: string, value:any) : SubQueryInterface
+    select(columns:string|string[]) : SubQueryInterface
 }

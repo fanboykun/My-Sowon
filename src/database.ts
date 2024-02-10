@@ -12,13 +12,15 @@ import {
 import { 
     ConnectionType,
     DatabaseConfig,
+    DatabaseConfiguration,
     DeleteOption,
     QueryHolder,
-    QueryType
+    QueryType,
+    SelectParam
 } from "./types"
 
 import { 
-    WhereSubQuery,
+    SubQuery
 } from "./sub_query"
 
 import { QueryBuilder } from "./helper"
@@ -41,7 +43,8 @@ export class Database
     private QueryValidator = new ValidateQuery()
     private QueryBuilder = new QueryBuilder()
 
-    constructor( options : DatabaseConfig = config,  connectionType: ConnectionType = "NORMAL", QueryValue : QueryHolder = InitialQuery ) {
+    constructor( options : DatabaseConfig = config, connectionType : ConnectionType = "NORMAL", QueryValue : QueryHolder =  InitialQuery )
+    {
         try {
             this.database_name = options.DATABASE_NAME
             this.database_host = options.DATABASE_HOST
@@ -92,22 +95,26 @@ export class Database
     }
 
     /** Generate statement based on QueryHolder value */
-    private generateStatement(QUERY:QueryHolder): string {
+    private generateStatement(QUERY:QueryHolder, QueryType: QueryType = this.QueryType): string {
         // begin generating query
         let statement = ''
-
-        if(this.QueryType === "SELECT") {
+        if(QueryType === "SELECT") {
             let strSelect = '*'
             if(QUERY.select == '*' || QUERY.select == ' * ') {
                 statement += 'SELECT ' + strSelect // apply column select
                 statement += ` FROM \`${QUERY.table}\`` // apply table select
             }else {
                 const selectField = [...QUERY.select]
-                selectField.map((col, index) => {
+                selectField.map((col : string|Array<string>, index) => {
+                    
                     let hasModified = false
                     let generatedSelect = ''
-
-                    if(col.includes('.')){
+                    
+                    if(typeof col != 'string' && col.length != 0) {
+                        generatedSelect += '(' + col + ')'
+                        hasModified = true
+                    }
+                    if(typeof col == 'string' && col.includes('.')){
                         const colSplit = col.split('.')
                         if(colSplit[1] == '*') {
                             generatedSelect = `\`${colSplit[0]}\`.`
@@ -118,7 +125,7 @@ export class Database
                         hasModified = true
                     }
 
-                    if(col.toUpperCase().includes(' AS ')){
+                    if(typeof col == 'string' && col.toUpperCase().includes(' AS ')){
                         const colSplit = col.includes(' AS ') ? col.split(' AS ') : col.split(' as ') 
                         if(hasModified) {
                             generatedSelect = `${colSplit[0]} AS \`${colSplit[1]}\``
@@ -126,7 +133,7 @@ export class Database
                             hasModified = true
                             generatedSelect = `\`${colSplit[0]}\` AS \`${colSplit[1]}\``
                         }
-                    }else if(col.includes(' ')){
+                    }else if(typeof col == 'string' && col.includes(' ')){
                         const colSplit = col.split(' ')
                         if(colSplit.length != 2) return
 
@@ -150,7 +157,17 @@ export class Database
             }
         }
 
-        if(this.QueryType === "CREATE") {
+        if(QueryType === "SUBQUERY") {
+            const selectField = [...QUERY.select]
+            statement += selectField.map((v) => { return `\`${v}\`` })
+            // apply where clause to the statement
+            if(QUERY.where.length > 0) {
+                statement += ` WHERE ${QUERY.where.join(' ')} ` // apply where
+            }
+            console.log(selectField)
+        }
+
+        if(QueryType === "CREATE") {
             let param_binder = '' 
             for(let i = 0; i < QUERY.insert.length; i++) {
                 if(i == QUERY.insert.length - 1){
@@ -163,11 +180,11 @@ export class Database
             statement = `INSERT INTO \`${QUERY.table}\` (${this.QUERY.insert.map(col => `\`${col}\``).join(', ')}) VALUES (${param_binder})` // apply insert
         }
 
-        if(this.QueryType === "INSERT") {
+        if(QueryType === "INSERT") {
             statement = `INSERT INTO ${QUERY.table} (${this.QUERY.insert.map(col => `\`${col}\``).join(', ')}) VALUES ?` // apply insert
         }
 
-        if(this.QueryType === "UPDATE") {
+        if(QueryType === "UPDATE") {
 
             if(QUERY.where.length == 0) {
                 throw("WHERE clause is required for UPDATE query")
@@ -188,21 +205,28 @@ export class Database
             }
         }
 
-        if(this.QueryType === "DELETE") {
+        if(QueryType === "DELETE") {
             statement = `DELETE FROM \`${QUERY.table}\`` // apply insert
         }
 
-        if(QUERY.where.length > 0) {
+        // apply where clause to the statement
+        if(QUERY.where.length > 0 && QueryType !== "SUBQUERY") {
             statement += ` WHERE ${QUERY.where.join(' ')} ` // apply where
         }
 
-        if(this.QueryType == "SELECT") {
+        if(QueryType == "SELECT") {
             // check if the order value is not null
             if(QUERY.order != null) {
                 statement += ` ORDER BY ${QUERY.order.toString()}`    // apply sorting
             }
 
-            statement += ` LIMIT ${QUERY.limit.toString()}`    // apply limit
+            if( QUERY.limit != 0 && QUERY.limit != null ) {
+                statement += ` LIMIT ${QUERY.limit.toString()}`    // apply limit
+            }
+            // check if the offset value is not null
+            if(QUERY.offset != 0 && QUERY.offset != null) {
+                statement += ` OFFSET ${QUERY.offset.toString()}`    // apply offset
+            }
         }
 
         // console.log(`generated statement: ${statement}`)
@@ -264,27 +288,32 @@ export class Database
     }
 
     /** Write SELECT statement, place '*' for selecting all column. Or don't use this method at all because the default select is ' * ' */
-    select(...column:Array<string>) : Database {
-        if(this.QUERY.table == null) {
-            throw("table is not selected")
-        }
-
-        if(column.length == 0) {
-            throw("select statement is empty")
-        }
-        
-        column.forEach(s => {
-            if(s == null) {
-                throw("select statement is empty")
+    select(...column : Array<string|Function>) : Database {
+        const finalSelectColumn = new Array
+        // Check if one of the argument is a function
+        for(let i = 0; i < column.length; i++){
+            const col = column[i]
+            // console.log(typeof col)
+            if (typeof col === 'function') {
+                // If the last parameter is a function, remove it from the list
+                const callback = col as Function;
+    
+                // new instance of SelectSubquery
+                const selectSubQuery = new SubQuery(this.QUERY, true)
+    
+                // Execute the callback function, passing the database instance
+                // const sub_query_callback = callback( this );
+                const sub_query_callback = callback( selectSubQuery );
+                const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
+                finalSelectColumn.push([sub_queries])
+            } else {
+                // Process columns as usual
+                const columns = column.filter(param => typeof param === 'string') as string[];
+                finalSelectColumn.push(...columns)
             }
-        })
-        
-        
-        if( this.QUERY.select != '*' && this.QUERY.select.length > 1) {
-            throw("the select statement already filled")
         }
-
-        this.QUERY.select = column
+        this.QUERY.select = finalSelectColumn
+        // console.log(finalSelectColumn)
         this.QueryType = "SELECT"
         return this
     }
@@ -341,8 +370,11 @@ export class Database
             param: this.QUERY.param,
             where: []
         }
-        const advancedWhereStatement = callback(new WhereSubQuery(toSubQuery))
-
+        const advancedWhereStatement = callback(new SubQuery(toSubQuery))
+        if(advancedWhereStatement.is_select == true) {
+            return this
+            // this.select(advancedWhereStatement.SUBQUERY.select)
+        }
         if(this.QUERY.where.length >= 1) {
             this.QUERY.where.push(`${clauseIntersecOperator} ( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )` )
         }else {
@@ -457,6 +489,25 @@ export class Database
                 reject("query failed")
             }
             resolve(result)
+        })
+    }
+
+    async limit(limit:number, offset?: number): Promise<RowDataPacket[]> {
+        return new Promise((resolve, reject) => {
+            if(this.QUERY.table == null) {
+                reject("table is not selected")
+            }
+
+            if( limit == 0 ) {
+                reject("limit cannot be zero")
+            }
+
+            this.QUERY.limit = limit
+            this.QUERY.offset = offset
+
+            const statement =  this.generateStatement(this.QUERY)
+            const param = this.QUERY.param
+            resolve(this.execute(statement, param))
         })
     }
 
