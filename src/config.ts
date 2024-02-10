@@ -13,10 +13,10 @@ export const config: DatabaseConfig = {
 
 export const QUERY: QUERY_HOLDER = {
     table: null,
-    select: ' * ',
+    select: '*',
     insert: [],
-    update: null,
-    delete: null,
+    update: [],
+    delete: [],
     limit: 300,
     where: [],
     param: [],

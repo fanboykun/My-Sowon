@@ -10,11 +10,12 @@ import {
 }  from "./config"
 
 import { 
+    DeleteOption,
     QUERY_HOLDER
 } from "./types"
 
 import { 
-    WHERE_SUB_QUERY
+    WhereSubQuery
 } from "./where_sub_query"
 
 export class Database
@@ -86,19 +87,62 @@ export class Database
     private generateStatement(QUERY:QUERY_HOLDER): string {
         // begin generating query
         let statement = ''
-        let parameter = ''
 
-        if(this.QUERY_TYPE == "SELECT") {
-            let strSelect = ' * '
-            if(QUERY.select instanceof Array) {
-                strSelect = QUERY.select.join(', ') 
+        if(this.QUERY_TYPE === "SELECT") {
+            let strSelect = '*'
+            if(QUERY.select == '*' || QUERY.select == ' * ') {
+                statement += 'SELECT ' + strSelect // apply column select
+                statement += ` FROM \`${QUERY.table}\`` // apply table select
+            }else {
+                const selectField = [...QUERY.select]
+                selectField.map((col, index) => {
+                    let hasModified = false
+                    let generatedSelect = ''
+
+                    if(col.includes('.')){
+                        const colSplit = col.split('.')
+                        if(colSplit[1] == '*') {
+                            generatedSelect = `\`${colSplit[0]}\`.`
+                            generatedSelect += '*'
+                        }else {
+                            generatedSelect = `\`${colSplit[0]}\`.\`${colSplit[1]}\``
+                        }
+                        hasModified = true
+                    }
+
+                    if(col.toUpperCase().includes(' AS ')){
+                        const colSplit = col.includes(' AS ') ? col.split(' AS ') : col.split(' as ') 
+                        if(hasModified) {
+                            generatedSelect = `${colSplit[0]} AS \`${colSplit[1]}\``
+                        }else {
+                            hasModified = true
+                            generatedSelect = `\`${colSplit[0]}\` AS \`${colSplit[1]}\``
+                        }
+                    }else if(col.includes(' ')){
+                        const colSplit = col.split(' ')
+                        if(colSplit.length != 2) return
+
+                        if(hasModified) {
+                            generatedSelect = `${colSplit[0]} \`${colSplit[1]}\``
+                        }else {
+                            hasModified = true
+                            generatedSelect = `\`${colSplit[0]}\` \`${colSplit[1]}\``
+                        }
+                    }
+
+                    if(hasModified == false) {
+                        generatedSelect += `\`${col}\``
+                    }
+
+                    index == 0 ? strSelect = generatedSelect : strSelect += ',' + generatedSelect // apply column select
+                })
+
+                statement += `SELECT ${strSelect}` // apply select statement
+                statement += ` FROM \`${QUERY.table}\`` // apply table select
             }
-
-            statement += 'SELECT' + ' ' + strSelect // apply column select
-            statement += ' ' + 'FROM' + ' ' + QUERY.table   // apply table
         }
 
-        if(this.QUERY_TYPE == "CREATE") {
+        if(this.QUERY_TYPE === "CREATE") {
             let param_binder = '' 
             for(let i = 0; i < QUERY.insert.length; i++) {
                 if(i == QUERY.insert.length - 1){
@@ -108,20 +152,51 @@ export class Database
                     param_binder += '?,'
                 }
             }
-            statement = 'INSERT INTO' + ' ' + QUERY.table + ' ' + '(' + this.QUERY.insert.join(', ') + ')' + ' VALUES ' + '(' + param_binder + ')' // apply insert
+            statement = `INSERT INTO \`${QUERY.table}\` (${this.QUERY.insert.map(col => `\`${col}\``).join(', ')}) VALUES (${param_binder})` // apply insert
         }
 
-        if(this.QUERY_TYPE == "INSERT") {
-            statement = `INSERT INTO` + ` ` + QUERY.table + ` ` + `(` + this.QUERY.insert.join(', ') + `)` + ` VALUES ` + `?` // apply insert
+        if(this.QUERY_TYPE === "INSERT") {
+            statement = `INSERT INTO ${QUERY.table} (${this.QUERY.insert.map(col => `\`${col}\``).join(', ')}) VALUES ?` // apply insert
+        }
+
+        if(this.QUERY_TYPE === "UPDATE") {
+
+            if(QUERY.where.length == 0) {
+                throw("WHERE clause is required for UPDATE query")
+            }
+
+            statement = `UPDATE \`${QUERY.table}\` SET `  // apply update
+            for(let i = 0; i < QUERY.update.length; i++) {
+                if(QUERY.update.length == 1) {
+                    statement += `\`${QUERY.update[i]}\` = ?`
+                    break;
+                }
+
+                if(i === QUERY.update.length - 1) {
+                    statement += `\`${QUERY.update[i]}\` = ?`
+                }else {
+                    statement += `\`${QUERY.update[i]}\` = ?,`
+                }
+            }
+        }
+
+        if(this.QUERY_TYPE === "DELETE") {
+            statement = `DELETE FROM \`${QUERY.table}\`` // apply insert
         }
 
         if(QUERY.where.length > 0) {
-            statement += ' ' + 'WHERE' + ' ' + QUERY.where.join(' ') // apply where
+            statement += ` WHERE ${QUERY.where.join(' ')} ` // apply where
         }
 
         if(this.QUERY_TYPE == "SELECT") {
-            statement += ' ' + 'LIMIT' + ' ' + QUERY.limit.toString()    // apply limit
+            // check if the order value is not null
+            if(QUERY.order != null) {
+                statement += ` ORDER BY ${QUERY.order.toString()}`    // apply sorting
+            }
+
+            statement += ` LIMIT ${QUERY.limit.toString()}`    // apply limit
         }
+
         // console.log(`generated statement: ${statement}`)
         return statement
     }
@@ -160,12 +235,12 @@ export class Database
     }
 
     /** Close Connection Manually */
-    close() : void{
+    close() : void {
         this.connection?.end()
     }
 
     /** Reset the QUERY_HOLDER value */
-    private reset() {
+    private reset() : void {
         this.QUERY = QUERY
     }
 
@@ -197,7 +272,7 @@ export class Database
         })
         
         
-        if( this.QUERY.select != ' * ' && this.QUERY.select.length > 1) {
+        if( this.QUERY.select != '*' && this.QUERY.select.length > 1) {
             throw("the select statement already filled")
         }
 
@@ -207,43 +282,67 @@ export class Database
     }
 
     /** Write Write Statement, if where clause if exists before, and AND equivalent statement before the clause */
-    where( colum:string, operator: string, value:any) : Database {
+    where( colum:string, operator: string, value:string|number|Array<unknown>) : Database {
         // check if the table is selected
         if(this.QUERY.table == null) {
             throw("table is not selected")
         }
-        if(this.QUERY.select != ' * ') {
+        if(this.QUERY.select != '*') {
             // check if the column is in the select
             if(!this.QUERY.select.includes(colum)) {
                 throw("column is not in the select statement")
             }
         }
+        let parameter = value
+        if(value instanceof Array) {
+            parameter = [value]
+        }
         // check is where is already filled
         if(this.QUERY.where.length >= 1) {
-            this.QUERY.where.push('AND' + ' ' + colum + ' ' + operator + ' ' + value)
+            this.QUERY.where.push(`AND \`${colum}\` ${operator} ?`)
+            this.QUERY.param.push(parameter)
         }else {
-            this.QUERY.where.push(colum + ' ' + operator + ' ' + value)
+            this.QUERY.where.push(`\`${colum}\` ${operator} ?`)
+            this.QUERY.param.push(parameter)
         }
         return this
     }
 
     /** Write OR WHERE equivalent statement */
-    orWhere( colum:string, operator: string, value:any) : Database {
+    orWhere( colum:string|Function, operator?: string, value?:any) : Database {
         // check if the table is selected
         if(this.QUERY.table == null) {
             throw("table is not selected")
         }
-        if(this.QUERY.select != ' * ') {
+        if( typeof colum == 'string' && this.QUERY.select != '*' ) {
             // check if the column is in the select
             if(!this.QUERY.select.includes(colum)) {
                 throw("column is not in the select statement")
             }
         }
+
         // check is where is already filled
         if(this.QUERY.where.length < 1) {
             throw("Cannot use or where when no main where")
         }
-        this.QUERY.where.push('OR' + ' ' + colum + ' ' + operator + ' ' + value)
+
+        if(typeof colum == 'function') {
+            const toSubQuery: QUERY_HOLDER = {
+                table: this.QUERY.table,
+                select: this.QUERY.select,
+                limit: this.QUERY.limit,
+                param: this.QUERY.param,
+                where: []
+            }
+            const advancedWhereStatement = colum(new WhereSubQuery(toSubQuery))
+            if(typeof advancedWhereStatement == 'undefined') throw('no query given in callback!')
+            this.QUERY.where.push(`OR ( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )`)
+            this.QUERY.param.push(value)
+            return this
+        }
+
+        this.QUERY.where.push(`OR ${colum} ${operator} ?`)
+        this.QUERY.param.push(value)
         return this
     }
 
@@ -253,15 +352,15 @@ export class Database
             table: this.QUERY.table,
             select: this.QUERY.select,
             limit: this.QUERY.limit,
+            param: this.QUERY.param,
             where: []
         }
-        const advancedWhereStatement = callback(new WHERE_SUB_QUERY(toSubQuery))
-        // console.log('(' + advancedWhereStatement.SUBQUERY.where.join(' ') + ')')
+        const advancedWhereStatement = callback(new WhereSubQuery(toSubQuery))
 
         if(this.QUERY.where.length >= 1) {
-            this.QUERY.where.push(clauseIntersecOperator + ' (' + advancedWhereStatement.SUBQUERY.where.join(' ') + ')')
+            this.QUERY.where.push(`${clauseIntersecOperator} ( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )` )
         }else {
-            this.QUERY.where.push('(' + advancedWhereStatement.SUBQUERY.where.join(' ') + ')')
+            this.QUERY.where.push(`( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )`)
         }
         return this
     }
@@ -272,14 +371,14 @@ export class Database
             throw("table is not selected")
         }
 
-        if(this.QUERY.select != ' * ') {
+        if(this.QUERY.select != '*') {
             // check if the column is in the select
             if(!this.QUERY.select.includes(column)) {
                 throw("column is not in the select statement")
             }
         }
 
-        this.QUERY.order = column + ' ' + order
+        this.QUERY.order = `\`${column}\` ${order}`
         return this
     }
 
@@ -294,25 +393,37 @@ export class Database
         return this
     }
 
-    /** Perform insert statement, Batch Insert compatible */
-    insert(columns:Array<string>, values:Array<any>[]) : Database {
+    /** Perform Batch insert statement */
+    insert(columns:Array<string>, values:Array<Array<unknown>>) : Database {
         this.QUERY_TYPE = "INSERT"
         
         this.QUERY.insert.push(...columns)
         this.QUERY.param.push([...values])
-        
         return this
     }
 
     /** Perform alter statement */
-    update() : Database {
+    update(data: { [key: string]: any } ) : Database {
+        if(data.constructor !== Object) {
+            throw("data must be an object")
+        }
+        const columns = Object.keys(data)
         this.QUERY_TYPE = "UPDATE"
+        for(let i = 0; i < columns.length; i++) {
+            this.QUERY.update.push(columns[i])
+            this.QUERY.param.push(data[columns[i]])
+        }
         return this
     }
 
     /** Perform delete statement */
-    delete() : Database {
+    delete(deleteOption: DeleteOption = { softDelete: false, softDeleteColumn: "deleted_at" }) : Database {
         this.QUERY_TYPE = "DELETE"
+        if(deleteOption.softDelete) {
+            this.QUERY.update.push(deleteOption.softDeleteColumn)
+            this.QUERY.param.push(new Date())
+            this.QUERY_TYPE = "UPDATE"
+        }
         return this
     }
 
@@ -324,7 +435,8 @@ export class Database
             }
     
             const statement =  this.generateStatement(this.QUERY)
-            resolve(this.execute(statement))
+            const param = this.QUERY.param
+            resolve(this.execute(statement, param))
         })
     }
 
@@ -343,7 +455,8 @@ export class Database
             this.QUERY.limit = limit
     
             const statement =  this.generateStatement(this.QUERY)
-            resolve(this.execute(statement))
+            const param = this.QUERY.param
+            resolve(this.execute(statement, param))
         })
     }
 
