@@ -79,3 +79,21 @@ export interface Where{
     where(colum:string, operator: string, value:any) : Where
     orWhere(colum:string, operator: string, value:any) : Where
 }
+
+export class SelectSubQuery implements Select
+{
+    private SUBQUERY: QueryHolder
+
+    constructor(subquery: QueryHolder) {
+        this.SUBQUERY = subquery;
+    }
+
+    select(columns:string|string[]) : SelectSubQuery {
+        this.SUBQUERY.select = columns
+        return this
+    }
+}
+
+export interface Select {
+    select(columns:string|string[]) : Select
+}

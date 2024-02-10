@@ -8,7 +8,6 @@ async function testSelect(): Promise<void> {
     // .select('*')
     .select('id', 'song_name as n', 'release_year year')
     // .where('song_name', 'IS', null)
-    // .where('id', 'in', [8, 9, 10])
     // .where('id', 'in', [20, 21, null, ''])
     .where((query: WhereSubQuery) => {
         return query.where('id', 'in', [20, 22, 25])
