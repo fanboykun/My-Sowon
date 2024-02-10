@@ -1,6 +1,6 @@
 import { 
     DatabaseConfig,
-    QUERY_HOLDER
+    QueryHolder
 } from "./types"
 
 export const config: DatabaseConfig = {
@@ -11,7 +11,7 @@ export const config: DatabaseConfig = {
     DATABASE_NAME: "my_sowon"
 }
 
-export const QUERY: QUERY_HOLDER = {
+export const InitialQuery: QueryHolder = {
     table: null,
     select: '*',
     insert: [],

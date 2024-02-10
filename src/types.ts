@@ -1,4 +1,4 @@
-export interface QUERY_HOLDER {
+export interface QueryHolder {
     table: string;
     select:Array<string|null>|string,
     order?:Array<string|null>|string,
@@ -22,3 +22,6 @@ export type DeleteOption = {
     softDelete?: boolean
     softDeleteColumn?: string
 }
+
+export type ConnectionType = "NORMAL" | "POOL"
+export type QueryType = "SELECT" | "CREATE" | "INSERT" | "UPDATE" | "DELETE"

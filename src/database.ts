@@ -5,18 +5,24 @@ import mysql, {
 } from "mysql2"
 
 import { 
-    QUERY,
+    InitialQuery,
     config
 }  from "./config"
 
 import { 
+    ConnectionType,
+    DatabaseConfig,
     DeleteOption,
-    QUERY_HOLDER
+    QueryHolder,
+    QueryType
 } from "./types"
 
 import { 
-    WhereSubQuery
-} from "./where_sub_query"
+    WhereSubQuery,
+} from "./sub_query"
+
+import { QueryBuilder } from "./helper"
+import { ValidateQuery } from "./validations"
 
 export class Database
 {
@@ -29,17 +35,19 @@ export class Database
     private database_password:string
     private database_port:number
 
-    private QUERY:QUERY_HOLDER
+    private QUERY:QueryHolder
 
-    private QUERY_TYPE : "SELECT" | "CREATE" | "INSERT" | "UPDATE" | "DELETE" = "SELECT"
+    private QueryType : QueryType = "SELECT"
+    private QueryValidator = new ValidateQuery()
+    private QueryBuilder = new QueryBuilder()
 
-    constructor( connectionType: "NORMAL" | "POOL" = "NORMAL" ) {
+    constructor( options : DatabaseConfig = config,  connectionType: ConnectionType = "NORMAL", QueryValue : QueryHolder = InitialQuery ) {
         try {
-            this.database_name = config.DATABASE_NAME
-            this.database_host = config.DATABASE_HOST
-            this.database_username = config.DATABASE_USERNAME
-            this.database_password = config.DATABASE_PASSWORD
-            this.database_port = config.DATABASE_PORT
+            this.database_name = options.DATABASE_NAME
+            this.database_host = options.DATABASE_HOST
+            this.database_username = options.DATABASE_USERNAME
+            this.database_password = options.DATABASE_PASSWORD
+            this.database_port = options.DATABASE_PORT
 
             this.connectionType = connectionType
 
@@ -49,7 +57,7 @@ export class Database
                 this.connection = this.pool()
             }
 
-            this.QUERY = QUERY
+            this.QUERY = QueryValue
 
         }catch(err) {
             // throw(err)
@@ -83,12 +91,12 @@ export class Database
         return conn
     }
 
-    /** Generate statement based on QUERY_HOLDER value */
-    private generateStatement(QUERY:QUERY_HOLDER): string {
+    /** Generate statement based on QueryHolder value */
+    private generateStatement(QUERY:QueryHolder): string {
         // begin generating query
         let statement = ''
 
-        if(this.QUERY_TYPE === "SELECT") {
+        if(this.QueryType === "SELECT") {
             let strSelect = '*'
             if(QUERY.select == '*' || QUERY.select == ' * ') {
                 statement += 'SELECT ' + strSelect // apply column select
@@ -142,7 +150,7 @@ export class Database
             }
         }
 
-        if(this.QUERY_TYPE === "CREATE") {
+        if(this.QueryType === "CREATE") {
             let param_binder = '' 
             for(let i = 0; i < QUERY.insert.length; i++) {
                 if(i == QUERY.insert.length - 1){
@@ -155,11 +163,11 @@ export class Database
             statement = `INSERT INTO \`${QUERY.table}\` (${this.QUERY.insert.map(col => `\`${col}\``).join(', ')}) VALUES (${param_binder})` // apply insert
         }
 
-        if(this.QUERY_TYPE === "INSERT") {
+        if(this.QueryType === "INSERT") {
             statement = `INSERT INTO ${QUERY.table} (${this.QUERY.insert.map(col => `\`${col}\``).join(', ')}) VALUES ?` // apply insert
         }
 
-        if(this.QUERY_TYPE === "UPDATE") {
+        if(this.QueryType === "UPDATE") {
 
             if(QUERY.where.length == 0) {
                 throw("WHERE clause is required for UPDATE query")
@@ -180,7 +188,7 @@ export class Database
             }
         }
 
-        if(this.QUERY_TYPE === "DELETE") {
+        if(this.QueryType === "DELETE") {
             statement = `DELETE FROM \`${QUERY.table}\`` // apply insert
         }
 
@@ -188,7 +196,7 @@ export class Database
             statement += ` WHERE ${QUERY.where.join(' ')} ` // apply where
         }
 
-        if(this.QUERY_TYPE == "SELECT") {
+        if(this.QueryType == "SELECT") {
             // check if the order value is not null
             if(QUERY.order != null) {
                 statement += ` ORDER BY ${QUERY.order.toString()}`    // apply sorting
@@ -239,9 +247,9 @@ export class Database
         this.connection?.end()
     }
 
-    /** Reset the QUERY_HOLDER value */
+    /** Reset the QueryHolder value */
     private reset() : void {
-        this.QUERY = QUERY
+        this.QUERY = InitialQuery
     }
 
     /** Select the table to perform the query, must needed */
@@ -277,78 +285,56 @@ export class Database
         }
 
         this.QUERY.select = column
-        this.QUERY_TYPE = "SELECT"
+        this.QueryType = "SELECT"
         return this
     }
 
     /** Write Write Statement, if where clause if exists before, and AND equivalent statement before the clause */
-    where( colum:string, operator: string, value:string|number|Array<unknown>) : Database {
+    where( colum:string|Function, operator?: string, value?:string|number|Array<any>) : Database {
+        if(typeof colum == 'function') {
+            return this.advancedWhere(colum, "AND")
+        }
         // check if the table is selected
-        if(this.QUERY.table == null) {
-            throw("table is not selected")
-        }
-        if(this.QUERY.select != '*') {
-            // check if the column is in the select
-            if(!this.QUERY.select.includes(colum)) {
-                throw("column is not in the select statement")
-            }
-        }
-        let parameter = value
-        if(value instanceof Array) {
-            parameter = [value]
-        }
-        // check is where is already filled
-        if(this.QUERY.where.length >= 1) {
-            this.QUERY.where.push(`AND \`${colum}\` ${operator} ?`)
-            this.QUERY.param.push(parameter)
-        }else {
-            this.QUERY.where.push(`\`${colum}\` ${operator} ?`)
-            this.QUERY.param.push(parameter)
-        }
+        this.QueryValidator.validateTableSelected(this.QUERY.table)
+
+        // check if the column is in the select
+        this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
+
+        const [whereStatement, parameter] = this.QueryBuilder.generateWhere(colum, operator, value, this.QUERY.where.length)
+        this.QUERY.where.push(whereStatement)
+        this.QUERY.param.push(parameter)
+        
         return this
     }
 
     /** Write OR WHERE equivalent statement */
-    orWhere( colum:string|Function, operator?: string, value?:any) : Database {
-        // check if the table is selected
-        if(this.QUERY.table == null) {
-            throw("table is not selected")
-        }
-        if( typeof colum == 'string' && this.QUERY.select != '*' ) {
-            // check if the column is in the select
-            if(!this.QUERY.select.includes(colum)) {
-                throw("column is not in the select statement")
-            }
-        }
-
+    orWhere( colum:string|Function, operator?: string, value?:string|number|Array<any>) : Database {
         // check is where is already filled
         if(this.QUERY.where.length < 1) {
             throw("Cannot use or where when no main where")
         }
 
+        // check if column is function, if so, execute advanced where function with or operator.
         if(typeof colum == 'function') {
-            const toSubQuery: QUERY_HOLDER = {
-                table: this.QUERY.table,
-                select: this.QUERY.select,
-                limit: this.QUERY.limit,
-                param: this.QUERY.param,
-                where: []
-            }
-            const advancedWhereStatement = colum(new WhereSubQuery(toSubQuery))
-            if(typeof advancedWhereStatement == 'undefined') throw('no query given in callback!')
-            this.QUERY.where.push(`OR ( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )`)
-            this.QUERY.param.push(value)
-            return this
+            return this.advancedWhere(colum, "OR")
         }
 
-        this.QUERY.where.push(`OR ${colum} ${operator} ?`)
-        this.QUERY.param.push(value)
+        // check if the table is selected
+        this.QueryValidator.validateTableSelected(this.QUERY.table)
+
+        // check if the column is in the select
+        this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
+
+        const [whereStatement, parameter] = this.QueryBuilder.generateOrWhere(colum, operator, value)
+        this.QUERY.where.push(whereStatement)
+        this.QUERY.param.push(parameter)
+
         return this
     }
 
     /** Wrice Multiple Nested Where Clause */
-    advancedWhere(  clauseIntersecOperator: "AND"|"OR" = "AND", callback: Function ) : Database {
-        const toSubQuery: QUERY_HOLDER = {
+    private advancedWhere( callback: Function, clauseIntersecOperator: "AND"|"OR" = "AND" ) : Database {
+        const toSubQuery: QueryHolder = {
             table: this.QUERY.table,
             select: this.QUERY.select,
             limit: this.QUERY.limit,
@@ -385,7 +371,7 @@ export class Database
     /** Perform insert statement */
     create(data: { [key: string]: any } ) : Database {
         const columns = Object.keys(data)
-        this.QUERY_TYPE = "CREATE"
+        this.QueryType = "CREATE"
         for(let i = 0; i < columns.length; i++) {
             this.QUERY.insert.push(columns[i])
             this.QUERY.param.push(data[columns[i]])
@@ -395,7 +381,7 @@ export class Database
 
     /** Perform Batch insert statement */
     insert(columns:Array<string>, values:Array<Array<unknown>>) : Database {
-        this.QUERY_TYPE = "INSERT"
+        this.QueryType = "INSERT"
         
         this.QUERY.insert.push(...columns)
         this.QUERY.param.push([...values])
@@ -408,7 +394,7 @@ export class Database
             throw("data must be an object")
         }
         const columns = Object.keys(data)
-        this.QUERY_TYPE = "UPDATE"
+        this.QueryType = "UPDATE"
         for(let i = 0; i < columns.length; i++) {
             this.QUERY.update.push(columns[i])
             this.QUERY.param.push(data[columns[i]])
@@ -418,11 +404,11 @@ export class Database
 
     /** Perform delete statement */
     delete(deleteOption: DeleteOption = { softDelete: false, softDeleteColumn: "deleted_at" }) : Database {
-        this.QUERY_TYPE = "DELETE"
+        this.QueryType = "DELETE"
         if(deleteOption.softDelete) {
             this.QUERY.update.push(deleteOption.softDeleteColumn)
             this.QUERY.param.push(new Date())
-            this.QUERY_TYPE = "UPDATE"
+            this.QueryType = "UPDATE"
         }
         return this
     }
