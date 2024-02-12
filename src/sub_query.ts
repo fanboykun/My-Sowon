@@ -76,7 +76,7 @@ export class SubQuery implements SubQueryInterface
         return this
     }
 
-    select(...columns:Array<string>) : SubQuery {
+    private select(...columns:Array<string>) : SubQuery {
         if(this.SUBQUERY.table == null) {
             throw("table is not selected")
         }
@@ -103,5 +103,5 @@ export class SubQuery implements SubQueryInterface
 export interface SubQueryInterface{
     where(colum:string, operator: string, value:any) : SubQueryInterface
     orWhere(colum:string, operator: string, value:any) : SubQueryInterface
-    select(columns:string|string[]) : SubQueryInterface
+    // select(columns:string|string[]) : SubQueryInterface
 }

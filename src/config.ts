@@ -21,4 +21,13 @@ export const InitialQuery: QueryHolder = {
     offset: 0,
     where: [],
     param: [],
+    group: null,
+    join: {
+        inner:null,
+        left:null,
+        right:null,
+        full:null,
+        cross:null,
+        natural:null
+    }
 }

@@ -7,9 +7,8 @@ export class ValidateQuery
 
     validateWhereColumnIsInSelect(column:string, select:Array<string>|string):true
     {
-        if(select == '*') return true
         // check if the column is in the select
-        if( typeof select == 'object' && !select.join(', ').includes(column) ) {
+        if( typeof select == 'object' && ( !select.join(', ').includes(column) && !select.join(', ').includes('*') ) ) {
             throw("column is not in the select statement")
         }else if( typeof select == 'string' && !select.includes(column)) {
             throw("column is not in the select statement")

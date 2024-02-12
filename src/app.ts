@@ -1,4 +1,5 @@
 import { Database }  from "./database";
+import { QueryBuilderHelper } from "./helper";
 import { SubQueryInterface } from "./sub_query";
 
 async function testSelect(): Promise<void> {
@@ -108,30 +109,63 @@ async function testSelect(): Promise<void> {
         })
     }
 
-    const SelectSubQuery = async () => {
-        try {
-            return db.table('songs')
-            .select( "song_name", (query: SubQueryInterface) => {
-                return query.select('album_id')
-                .where('album_id', '>', 1)
-            })
-            .logQuery()
-            // .all()
-            // .catch((err) => {
-            //     console.log(err)
-            //     return null
-            // })
-        }catch(err) {
+    const selectGroup = async () => {
+        return db.table('songs')
+        .select('release_year', 'song_name')
+        // .where('album_id', '>', 0)
+        .groupBy('release_year')
+        // .logQuery()
+        .all()
+        // .limit(5, 10)
+        .catch((err) => {
             console.log(err)
             return null
-        }
+        })
     }
 
-    const like = 'a'
-    const result = await SelectSubQuery()
-    // const result = await selectOrWhere()
-    // const result = await selectSubWhere()
+    // const SelectSubQuery = async () => {
+    //     try {
+    //         return db.table('songs')
+    //         .select( "song_name", (query: SubQueryInterface) => {
+    //             return query.select('album_id')
+    //             .where('album_id', '>', 1)
+    //         })
+    //         // .logQuery()
+    //         .all()
+    //         .catch((err) => {
+    //             console.log(err)
+    //             return null
+    //         })
+    //     }catch(err) {
+    //         console.log(err)
+    //         return null
+    //     }
+    // }
 
+    const selectCount = async () => {
+        return db.table('songs')
+        .select(QueryBuilderHelper.COUNT({ alias:'count' }))
+        .all()
+        // .limit(5, 10)
+        .catch((err) => {
+            console.log(err)
+            return null
+        })    
+    }
+
+    const selectInnerJoin = async() => {
+        return db.table('songs')
+        .select('songs.*', 'alb.album_name alb_name')
+        .leftJoin( { table: 'albums', tableAlias: 'alb', foreignKey:'songs.album_id', localKey:'alb.id' } )
+        .where('songs.album_id', '=', 1)
+        .all()
+        .catch((err) => {
+            console.log(err)
+            return null
+        })    
+    }
+
+    const result = await selectInnerJoin()
     console.log(result)
 }
 

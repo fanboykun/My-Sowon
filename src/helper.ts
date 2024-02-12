@@ -1,3 +1,6 @@
+import { count } from "console";
+import { QueryBuilderHelperType } from "./types";
+
 export class QueryBuilder
 {
     /** Helper For backtipping your input */
@@ -16,7 +19,7 @@ export class QueryBuilder
      * `song_name` `name`
      * this method should only be used internally (private)
      */
-    backTipping(col:string) : string {
+    static backTipping(col:string) : string {
         let modifiedValue = ''
         let hasModified = false
 
@@ -70,7 +73,7 @@ export class QueryBuilder
      * Generate Parameter Binding String for Prepared Statement, like ?, (?,?)
      * based on input length
      */
-    paramBinder(val: Array<string>):string{
+    static paramBinder(val: Array<string>):string{
         let param_binder = '' 
         for(let i = 0; i < val.length; i++) {
             if(i == val.length - 1){
@@ -86,7 +89,7 @@ export class QueryBuilder
     /**
      * Generate Or Where Statement
      */
-    generateOrWhere(colum:string, operator: string, value:string|number|Array<any>) : [ string, any ] {
+    static generateOrWhere(colum:string, operator: string, value:string|number|Array<any>) : [ string, any ] {
         let parameter: typeof value|Array<typeof value> = value
         if(value instanceof Array) {
             if(value.length == 0) {
@@ -96,14 +99,15 @@ export class QueryBuilder
             }
         }
 
-        let where = `OR ${colum} ${operator} ?`
+        const backtippedColumn = this.backTipping(colum)
+        let where = `OR ${backtippedColumn} ${operator} ?`
         return [where, parameter]
     }
 
     /**
      * Generate Or Where Statement
      */
-    generateWhere(colum:string, operator: string, value:string|number|Array<any>, existingWhereStatementLength:number) : [ string, any ] {
+    static generateWhere(colum:string, operator: string, value:string|number|Array<any>, existingWhereStatementLength:number) : [ string, any ] {
         let parameter: typeof value|Array<typeof value> = value
         if(value instanceof Array) {
             if(value.length == 0) {
@@ -112,15 +116,60 @@ export class QueryBuilder
                 parameter = [value]
             }
         }
-
+        const backtippedColumn = this.backTipping(colum)
         // check is where is already filled
         if(existingWhereStatementLength >= 1) {
-            let where = `AND \`${colum}\` ${operator} ?`
+            let where = `AND ${backtippedColumn} ${operator} ?`
             return [where, parameter]
         }else {
-            let where = `\`${colum}\` ${operator} ?`
+            let where = `${backtippedColumn} ${operator} ?`
             return [where, parameter]
         }
     }
 
+}
+
+export class QueryBuilderHelper
+{
+    static param: QueryBuilderHelperType
+
+    static {
+        this.param = {
+            __count: null,
+        }
+    }
+
+    public static COUNT( { column, alias }: { column?:string, alias?:string } ): Queries {
+        let initialCount:string = ''
+        if(column == null || column.includes('*')) {
+            initialCount = `COUNT(*)`
+        }else {
+            const backtipped = QueryBuilder.backTipping(column)
+            initialCount = `COUNT(${backtipped})` 
+        }
+        if(alias != null) {
+            const backtippedAlias = QueryBuilder.backTipping(alias)
+            initialCount += ` AS ${backtippedAlias}`
+        }
+        this.param.__count = initialCount
+        return new Queries(this.param)
+    }
+    public get param() {
+        return this.param
+    }
+} 
+
+export class Queries
+{
+    constructor(private param:QueryBuilderHelperType) {}
+
+    transform(){
+        const filtered = Object.fromEntries(
+            Object.entries(this.param).filter(([_, value]) => value !== null)
+        );
+        const keys = Object.keys(filtered)
+        if(keys.length == 1) {
+            return filtered[keys[0]]
+        }
+    }
 }

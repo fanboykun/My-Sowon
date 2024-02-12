@@ -14,6 +14,7 @@ import {
     DatabaseConfig,
     DatabaseConfiguration,
     DeleteOption,
+    JoinTypes,
     QueryHolder,
     QueryType,
     SelectParam
@@ -23,7 +24,7 @@ import {
     SubQuery
 } from "./sub_query"
 
-import { QueryBuilder } from "./helper"
+import { Queries, QueryBuilder } from "./helper"
 import { ValidateQuery } from "./validations"
 
 export class Database
@@ -98,6 +99,7 @@ export class Database
     private generateStatement(QUERY:QueryHolder, QueryType: QueryType = this.QueryType): string {
         // begin generating query
         let statement = ''
+        // basic select query generation
         if(QueryType === "SELECT") {
             let strSelect = '*'
             if(QUERY.select == '*' || QUERY.select == ' * ') {
@@ -105,45 +107,54 @@ export class Database
                 statement += ` FROM \`${QUERY.table}\`` // apply table select
             }else {
                 const selectField = [...QUERY.select]
-                selectField.map((col : string|Array<string>, index) => {
+                selectField.map((col : string|Array<string>|Queries, index: number) => {
                     
                     let hasModified = false
                     let generatedSelect = ''
-                    
-                    if(typeof col != 'string' && col.length != 0) {
-                        generatedSelect += '(' + col + ')'
-                        hasModified = true
-                    }
-                    if(typeof col == 'string' && col.includes('.')){
-                        const colSplit = col.split('.')
-                        if(colSplit[1] == '*') {
-                            generatedSelect = `\`${colSplit[0]}\`.`
-                            generatedSelect += '*'
+
+                    if(typeof col == 'object') {
+                        if(col instanceof Queries) {
+                            generatedSelect += col.transform()
+                            hasModified = true
                         }else {
-                            generatedSelect = `\`${colSplit[0]}\`.\`${colSplit[1]}\``
+                            if( col.length != 0) {
+                                generatedSelect += '(' + col + ')'
+                                hasModified = true
+                            }
                         }
-                        hasModified = true
+                    }else if(typeof col == 'string') {
+                        if(col.includes('.')){
+                            const colSplit = col.split('.')
+                            if(colSplit[1] == '*') {
+                                generatedSelect = `\`${colSplit[0]}\`.`
+                                generatedSelect += '*'
+                            }else {
+                                generatedSelect = `\`${colSplit[0]}\`.\`${colSplit[1]}\``
+                            }
+                            hasModified = true
+                        }
+                        
+                        if(col.toUpperCase().includes(' AS ')){
+                            const colSplit = col.includes(' AS ') ? col.split(' AS ') : col.split(' as ') 
+                            if(hasModified) {
+                                generatedSelect = `${colSplit[0]} AS \`${colSplit[1]}\``
+                            }else {
+                                hasModified = true
+                                generatedSelect = `\`${colSplit[0]}\` AS \`${colSplit[1]}\``
+                            }
+                        }else if(col.includes(' ')){
+                            const colSplit = col.split(' ')
+                            if(colSplit.length != 2) return
+    
+                            if(hasModified) {
+                                generatedSelect = `${colSplit[0]} \`${colSplit[1]}\``
+                            }else {
+                                hasModified = true
+                                generatedSelect = `\`${colSplit[0]}\` \`${colSplit[1]}\``
+                            }
+                        }
                     }
 
-                    if(typeof col == 'string' && col.toUpperCase().includes(' AS ')){
-                        const colSplit = col.includes(' AS ') ? col.split(' AS ') : col.split(' as ') 
-                        if(hasModified) {
-                            generatedSelect = `${colSplit[0]} AS \`${colSplit[1]}\``
-                        }else {
-                            hasModified = true
-                            generatedSelect = `\`${colSplit[0]}\` AS \`${colSplit[1]}\``
-                        }
-                    }else if(typeof col == 'string' && col.includes(' ')){
-                        const colSplit = col.split(' ')
-                        if(colSplit.length != 2) return
-
-                        if(hasModified) {
-                            generatedSelect = `${colSplit[0]} \`${colSplit[1]}\``
-                        }else {
-                            hasModified = true
-                            generatedSelect = `\`${colSplit[0]}\` \`${colSplit[1]}\``
-                        }
-                    }
 
                     if(hasModified == false) {
                         generatedSelect += `\`${col}\``
@@ -156,6 +167,17 @@ export class Database
                 statement += ` FROM \`${QUERY.table}\`` // apply table select
             }
         }
+        // join generation
+        if(QueryType === "SELECT") {
+            let isJoinDefined = false
+            for(let JoinType in QUERY.join){
+                if(isJoinDefined == true) break
+                if(QUERY.join[JoinType] != null) {
+                    statement += ` ${QUERY.join[JoinType]}` // apply join
+                    isJoinDefined = true
+                }
+            }
+        }
 
         if(QueryType === "SUBQUERY") {
             const selectField = [...QUERY.select]
@@ -164,7 +186,7 @@ export class Database
             if(QUERY.where.length > 0) {
                 statement += ` WHERE ${QUERY.where.join(' ')} ` // apply where
             }
-            console.log(selectField)
+            // delete QUERY.where
         }
 
         if(QueryType === "CREATE") {
@@ -216,10 +238,14 @@ export class Database
 
         if(QueryType == "SELECT") {
             // check if the order value is not null
+            if(QUERY.group != null) {
+                statement += ` GROUP BY ${QUERY.group}`    // apply sorting
+            }
+            // check if the order value is not null
             if(QUERY.order != null) {
                 statement += ` ORDER BY ${QUERY.order.toString()}`    // apply sorting
             }
-
+            // ckeck if the limit value is not null
             if( QUERY.limit != 0 && QUERY.limit != null ) {
                 statement += ` LIMIT ${QUERY.limit.toString()}`    // apply limit
             }
@@ -288,14 +314,13 @@ export class Database
     }
 
     /** Write SELECT statement, place '*' for selecting all column. Or don't use this method at all because the default select is ' * ' */
-    select(...column : Array<string|Function>) : Database {
+    select(...column : Array<string|Queries>) : Database {
         const finalSelectColumn = new Array
         // Check if one of the argument is a function
         for(let i = 0; i < column.length; i++){
-            const col = column[i]
-            // console.log(typeof col)
+            const col : unknown = column[i]
             if (typeof col === 'function') {
-                // If the last parameter is a function, remove it from the list
+                    // If the last parameter is a function, remove it from the list
                 const callback = col as Function;
     
                 // new instance of SelectSubquery
@@ -306,14 +331,18 @@ export class Database
                 const sub_query_callback = callback( selectSubQuery );
                 const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
                 finalSelectColumn.push([sub_queries])
-            } else {
+            }else if( typeof col === 'string' ) {
                 // Process columns as usual
-                const columns = column.filter(param => typeof param === 'string') as string[];
-                finalSelectColumn.push(...columns)
+                finalSelectColumn.push(col)
+
+                // filter column to return string only, used this outside the loop
+                // const columns = column.filter(param => typeof param === 'string') as string[];
+                // finalSelectColumn.push(...columns)
+            }else {
+                finalSelectColumn.push(col)
             }
         }
         this.QUERY.select = finalSelectColumn
-        // console.log(finalSelectColumn)
         this.QueryType = "SELECT"
         return this
     }
@@ -329,7 +358,7 @@ export class Database
         // check if the column is in the select
         this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
 
-        const [whereStatement, parameter] = this.QueryBuilder.generateWhere(colum, operator, value, this.QUERY.where.length)
+        const [whereStatement, parameter] = QueryBuilder.generateWhere(colum, operator, value, this.QUERY.where.length)
         this.QUERY.where.push(whereStatement)
         this.QUERY.param.push(parameter)
         
@@ -354,10 +383,43 @@ export class Database
         // check if the column is in the select
         this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
 
-        const [whereStatement, parameter] = this.QueryBuilder.generateOrWhere(colum, operator, value)
+        const [whereStatement, parameter] = QueryBuilder.generateOrWhere(colum, operator, value)
         this.QUERY.where.push(whereStatement)
         this.QUERY.param.push(parameter)
 
+        return this
+    }
+
+    /** Inner Join */
+    innerJoin( { table, tableAlias, foreignKey, localKey } : { table:string, tableAlias?:string, foreignKey:string, localKey:string } ) : Database {
+        return this.join( { type: "INNER", tableAlias, table, foreignKey, localKey } )
+    }
+
+    /** Left Join */
+    leftJoin( { table, tableAlias, foreignKey, localKey } : { table:string, tableAlias?:string, foreignKey:string, localKey:string } ) : Database {
+        return this.join( { type: "LEFT", tableAlias, table, foreignKey, localKey } )
+    }
+
+    /** Riht Join */
+    rigtJoin( { table, tableAlias, foreignKey, localKey } : { table:string, tableAlias?:string, foreignKey:string, localKey:string } ) : Database {
+        return this.join( { type: "RIGHT", tableAlias, table, foreignKey, localKey } )
+    }
+
+    /** Riht Join */
+    fullJoin( { table, tableAlias, foreignKey, localKey } : { table:string, tableAlias?:string, foreignKey:string, localKey:string } ) : Database {
+        return this.join( { type: "FULL", tableAlias, table, foreignKey, localKey } )
+    }
+
+    /** Join */
+    private join( { type, table, tableAlias, foreignKey, localKey } : { type:JoinTypes, table:string, tableAlias?:string, foreignKey:string, localKey:string } ) : Database{
+        if(typeof table == 'undefined') throw("reference table is required")
+        if(this.QUERY.join[type] != null) throw(`${type?.toUpperCase()} join has already defined`)
+        const transformedForeignKey = QueryBuilder.backTipping(foreignKey)
+        const transformedlocalKey = QueryBuilder.backTipping(localKey)
+        let joinStatement = `${type} JOIN ${table} `
+        if(tableAlias != null) joinStatement += `AS ${QueryBuilder.backTipping(tableAlias)} `
+        joinStatement += `ON ${transformedForeignKey} = ${transformedlocalKey}`
+        this.QUERY.join[type] = joinStatement
         return this
     }
 
@@ -397,6 +459,14 @@ export class Database
         }
 
         this.QUERY.order = `\`${column}\` ${order}`
+        return this
+    }
+
+    /** Group Method */
+    groupBy(column:string) : Database {
+        this.QueryValidator.validateTableSelected(this.QUERY.table)
+        this.QueryValidator.validateWhereColumnIsInSelect(column, this.QUERY.select)
+        this.QUERY.group = QueryBuilder.backTipping(column)
         return this
     }
 
@@ -492,6 +562,7 @@ export class Database
         })
     }
 
+    /** Limit query, use for pagination */
     async limit(limit:number, offset?: number): Promise<RowDataPacket[]> {
         return new Promise((resolve, reject) => {
             if(this.QUERY.table == null) {
