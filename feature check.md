@@ -41,7 +41,10 @@
 - [x] default limit query by 300
 
 ### Joins
-- [ ] left join 
+- [x] inner join 
+- [x] left join 
+- [x] rigt join 
+- [x] full join 
 
 ### Group
 - [ ] group by
