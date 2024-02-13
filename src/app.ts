@@ -1,5 +1,5 @@
 import { Database }  from "./database";
-import { QueryBuilderHelper } from "./helper";
+import { AggregateQuery } from "./helper";
 import { SubQueryInterface } from "./sub_query";
 
 async function testSelect(): Promise<void> {
@@ -108,7 +108,6 @@ async function testSelect(): Promise<void> {
             return null
         })
     }
-
     const selectGroup = async () => {
         return db.table('songs')
         .select('release_year', 'song_name')
@@ -144,20 +143,18 @@ async function testSelect(): Promise<void> {
 
     const selectCount = async () => {
         return db.table('songs')
-        .select(QueryBuilderHelper.COUNT({ alias:'count' }))
+        .select(AggregateQuery.COUNT({ alias:'count' }))
         .all()
-        // .limit(5, 10)
         .catch((err) => {
             console.log(err)
             return null
         })    
     }
-
-    const selectInnerJoin = async() => {
+    const selectJoin = async() => {
         return db.table('songs')
         .select('songs.*', 'alb.album_name alb_name')
         .leftJoin( { table: 'albums', tableAlias: 'alb', foreignKey:'songs.album_id', localKey:'alb.id' } )
-        .where('songs.album_id', '=', 1)
+        .where('songs.album_id', '!=', '')
         .all()
         .catch((err) => {
             console.log(err)
@@ -165,7 +162,7 @@ async function testSelect(): Promise<void> {
         })    
     }
 
-    const result = await selectInnerJoin()
+    const result = await selectJoin()
     console.log(result)
 }
 

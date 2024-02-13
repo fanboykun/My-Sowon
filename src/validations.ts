@@ -1,3 +1,5 @@
+import { Operator, bitwiseOperator } from "./helper";
+
 export class ValidateQuery
 {
     validateTableSelected(table:string){
@@ -14,5 +16,11 @@ export class ValidateQuery
             throw("column is not in the select statement")
         }
         return true
+    }
+
+    validateOperatorExists(operator:Operator){
+        const allOperators: Operator[] = [...operator, ...bitwiseOperator]
+        if(allOperators.includes(operator) || allOperators.includes(operator.toLowerCase())) return true
+        throw("Operator does not exist")
     }
 }

@@ -1,14 +1,5 @@
-import mysql, { 
-    Connection,
-    Pool,
-    RowDataPacket,
-} from "mysql2"
-
-import { 
-    InitialQuery,
-    config
-}  from "./config"
-
+import mysql, { Connection, Pool, RowDataPacket } from "mysql2"
+import { InitialQuery, config }  from "./config"
 import { 
     ConnectionType,
     DatabaseConfig,
@@ -17,14 +8,11 @@ import {
     JoinTypes,
     QueryHolder,
     QueryType,
-    SelectParam
+    SelectParam,
+    SowonConfiguration
 } from "./types"
-
-import { 
-    SubQuery
-} from "./sub_query"
-
-import { Queries, QueryBuilder } from "./helper"
+import { SubQuery } from "./sub_query"
+import { Operator, Queries, QueryBuilder } from "./helper"
 import { ValidateQuery } from "./validations"
 
 export class Database
@@ -42,31 +30,35 @@ export class Database
 
     private QueryType : QueryType = "SELECT"
     private QueryValidator = new ValidateQuery()
-    private QueryBuilder = new QueryBuilder()
 
-    constructor( options : DatabaseConfig = config, connectionType : ConnectionType = "NORMAL", QueryValue : QueryHolder =  InitialQuery )
+    constructor( { options, connectionType, QueryValue, shouldConnect } : SowonConfiguration = {} )   
     {
         try {
-            this.database_name = options.DATABASE_NAME
-            this.database_host = options.DATABASE_HOST
-            this.database_username = options.DATABASE_USERNAME
-            this.database_password = options.DATABASE_PASSWORD
-            this.database_port = options.DATABASE_PORT
-
-            this.connectionType = connectionType
-
-            if(connectionType === "NORMAL") {
-                this.connection = this.connect()
-            }else if(connectionType === "POOL") {
-                this.connection = this.pool()
+            const ShouldConnecting = shouldConnect == null ? true : shouldConnect
+            if(ShouldConnecting) {
+                const opts = options != null ? options : config
+                this.placeDatabaseConfig(opts)
+                this.connectionType = connectionType ? connectionType : "NORMAL"
+                if(this.connectionType === "NORMAL") {
+                    this.connection = this.connect()
+                }else if(this.connectionType === "POOL") {
+                    this.connection = this.pool()
+                }
             }
-
-            this.QUERY = QueryValue
-
+            this.QUERY = QueryValue != null ? QueryValue : InitialQuery
         }catch(err) {
             // throw(err)
             throw("Could't Connect To Database")
         }
+    }
+
+    /** Place the given database config */
+    private placeDatabaseConfig(options: DatabaseConfig) : void {
+        this.database_name = options.DATABASE_NAME
+        this.database_host = options.DATABASE_HOST
+        this.database_username = options.DATABASE_USERNAME
+        this.database_password = options.DATABASE_PASSWORD
+        this.database_port = options.DATABASE_PORT
     }
 
     /** Create Normal Mysql.Connection Connection */
@@ -96,7 +88,8 @@ export class Database
     }
 
     /** Generate statement based on QueryHolder value */
-    private generateStatement(QUERY:QueryHolder, QueryType: QueryType = this.QueryType): string {
+    private generateStatement(QUERY?:QueryHolder, QueryType: QueryType = this.QueryType): string {
+        if(QUERY == null) { QUERY = this?.QUERY }
         // begin generating query
         let statement = ''
         // basic select query generation
@@ -104,10 +97,10 @@ export class Database
             let strSelect = '*'
             if(QUERY.select == '*' || QUERY.select == ' * ') {
                 statement += 'SELECT ' + strSelect // apply column select
-                statement += ` FROM \`${QUERY.table}\`` // apply table select
+                statement += ` FROM ${QueryBuilder.backTipping(QUERY.table)}` // apply table select
             }else {
                 const selectField = [...QUERY.select]
-                selectField.map((col : string|Array<string>|Queries, index: number) => {
+                selectField.map((col : string|Array<string>|Queries|Database, index: number) => {
                     
                     let hasModified = false
                     let generatedSelect = ''
@@ -116,6 +109,9 @@ export class Database
                         if(col instanceof Queries) {
                             generatedSelect += col.transform()
                             hasModified = true
+                        }else if(col instanceof Database){
+                            generatedSelect += col.generateStatement(col.QUERY, "SELECT")
+                            hasModified = true
                         }else {
                             if( col.length != 0) {
                                 generatedSelect += '(' + col + ')'
@@ -123,48 +119,14 @@ export class Database
                             }
                         }
                     }else if(typeof col == 'string') {
-                        if(col.includes('.')){
-                            const colSplit = col.split('.')
-                            if(colSplit[1] == '*') {
-                                generatedSelect = `\`${colSplit[0]}\`.`
-                                generatedSelect += '*'
-                            }else {
-                                generatedSelect = `\`${colSplit[0]}\`.\`${colSplit[1]}\``
-                            }
-                            hasModified = true
-                        }
-                        
-                        if(col.toUpperCase().includes(' AS ')){
-                            const colSplit = col.includes(' AS ') ? col.split(' AS ') : col.split(' as ') 
-                            if(hasModified) {
-                                generatedSelect = `${colSplit[0]} AS \`${colSplit[1]}\``
-                            }else {
-                                hasModified = true
-                                generatedSelect = `\`${colSplit[0]}\` AS \`${colSplit[1]}\``
-                            }
-                        }else if(col.includes(' ')){
-                            const colSplit = col.split(' ')
-                            if(colSplit.length != 2) return
-    
-                            if(hasModified) {
-                                generatedSelect = `${colSplit[0]} \`${colSplit[1]}\``
-                            }else {
-                                hasModified = true
-                                generatedSelect = `\`${colSplit[0]}\` \`${colSplit[1]}\``
-                            }
-                        }
-                    }
-
-
-                    if(hasModified == false) {
-                        generatedSelect += `\`${col}\``
+                        generatedSelect = QueryBuilder.backTipping(col)
                     }
 
                     index == 0 ? strSelect = generatedSelect : strSelect += ',' + generatedSelect // apply column select
                 })
 
                 statement += `SELECT ${strSelect}` // apply select statement
-                statement += ` FROM \`${QUERY.table}\`` // apply table select
+                statement += ` FROM ${QueryBuilder.backTipping(QUERY.table)}` // apply table select
             }
         }
         // join generation
@@ -181,12 +143,8 @@ export class Database
 
         if(QueryType === "SUBQUERY") {
             const selectField = [...QUERY.select]
-            statement += selectField.map((v) => { return `\`${v}\`` })
-            // apply where clause to the statement
-            if(QUERY.where.length > 0) {
-                statement += ` WHERE ${QUERY.where.join(' ')} ` // apply where
-            }
-            // delete QUERY.where
+            statement += selectField.map((v) => { return `${QueryBuilder.backTipping(v)}` })
+            if(QUERY.where.length > 0) { statement += ` WHERE ${QUERY.where.join(' ')} ` } // apply where 
         }
 
         if(QueryType === "CREATE") {
@@ -239,7 +197,7 @@ export class Database
         if(QueryType == "SELECT") {
             // check if the order value is not null
             if(QUERY.group != null) {
-                statement += ` GROUP BY ${QUERY.group}`    // apply sorting
+                statement += ` GROUP BY ${QUERY.group}`    // apply grouping
             }
             // check if the order value is not null
             if(QUERY.order != null) {
@@ -255,7 +213,6 @@ export class Database
             }
         }
 
-        // console.log(`generated statement: ${statement}`)
         return statement
     }
     
@@ -276,6 +233,11 @@ export class Database
                 this.reset()
             }
         })
+    }
+
+    // Query Holder Getter
+    getHoldQuery(key : keyof QueryHolder): unknown {
+        return this.QUERY[key] ?? null
     }
 
     /** Directly pass your own query */
@@ -323,14 +285,17 @@ export class Database
                     // If the last parameter is a function, remove it from the list
                 const callback = col as Function;
     
-                // new instance of SelectSubquery
-                const selectSubQuery = new SubQuery(this.QUERY, true)
-    
-                // Execute the callback function, passing the database instance
-                // const sub_query_callback = callback( this );
-                const sub_query_callback = callback( selectSubQuery );
-                const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
-                finalSelectColumn.push([sub_queries])
+                //OLD WAY
+                // const selectSubQuery = new SubQuery(this.QUERY, true)
+                // const sub_query_callback = callback( selectSubQuery );
+                // const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
+                // finalSelectColumn.push([sub_queries])
+                
+                // NEW WAY
+                const newDatabaseInstance = new Database({ shouldConnect : false })
+                const subQueryInstance : Database = callback( newDatabaseInstance );
+                const generatedSUbQuery = subQueryInstance.generateStatement(subQueryInstance.QUERY, "SUBQUERY")
+                finalSelectColumn.push([generatedSUbQuery])
             }else if( typeof col === 'string' ) {
                 // Process columns as usual
                 finalSelectColumn.push(col)
@@ -348,7 +313,7 @@ export class Database
     }
 
     /** Write Write Statement, if where clause if exists before, and AND equivalent statement before the clause */
-    where( colum:string|Function, operator?: string, value?:string|number|Array<any>) : Database {
+    where( colum:string|Function, operator?: Operator, value?:string|number|Array<any>) : Database {
         if(typeof colum == 'function') {
             return this.advancedWhere(colum, "AND")
         }
@@ -366,7 +331,7 @@ export class Database
     }
 
     /** Write OR WHERE equivalent statement */
-    orWhere( colum:string|Function, operator?: string, value?:string|number|Array<any>) : Database {
+    orWhere( colum:string|Function, operator?: Operator, value?:string|number|Array<any>) : Database {
         // check is where is already filled
         if(this.QUERY.where.length < 1) {
             throw("Cannot use or where when no main where")
@@ -425,17 +390,10 @@ export class Database
 
     /** Wrice Multiple Nested Where Clause */
     private advancedWhere( callback: Function, clauseIntersecOperator: "AND"|"OR" = "AND" ) : Database {
-        const toSubQuery: QueryHolder = {
-            table: this.QUERY.table,
-            select: this.QUERY.select,
-            limit: this.QUERY.limit,
-            param: this.QUERY.param,
-            where: []
-        }
+        const toSubQuery: QueryHolder = {}
         const advancedWhereStatement = callback(new SubQuery(toSubQuery))
         if(advancedWhereStatement.is_select == true) {
             return this
-            // this.select(advancedWhereStatement.SUBQUERY.select)
         }
         if(this.QUERY.where.length >= 1) {
             this.QUERY.where.push(`${clauseIntersecOperator} ( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )` )

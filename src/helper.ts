@@ -1,4 +1,3 @@
-import { count } from "console";
 import { QueryBuilderHelperType } from "./types";
 
 export class QueryBuilder
@@ -129,22 +128,33 @@ export class QueryBuilder
 
 }
 
-export class QueryBuilderHelper
+export class AggregateQuery
 {
     static param: QueryBuilderHelperType
 
     static {
         this.param = {
             __count: null,
+            __sum: null,
+            __avg: null,
+            __min: null,
+            __max: null,
+            __distinct: null,
         }
     }
 
-    public static COUNT( { column, alias }: { column?:string, alias?:string } ): Queries {
+    /** COUNT Aggregate */
+    public static COUNT( { column, alias }: { column?:string|Queries, alias?:string } ): Queries {
         let initialCount:string = ''
+        let shouldBacktip = true
+        if(column instanceof Queries) {
+            column = column.transform()
+            shouldBacktip = false
+        }
         if(column == null || column.includes('*')) {
             initialCount = `COUNT(*)`
         }else {
-            const backtipped = QueryBuilder.backTipping(column)
+            const backtipped = shouldBacktip ? QueryBuilder.backTipping(column) : column
             initialCount = `COUNT(${backtipped})` 
         }
         if(alias != null) {
@@ -154,6 +164,72 @@ export class QueryBuilderHelper
         this.param.__count = initialCount
         return new Queries(this.param)
     }
+
+    /** SUM Aggregate */
+    public static SUM( { column, alias }: { column:string, alias?:string } ): Queries {
+        let initialSum:string = ''
+        const backtipped = QueryBuilder.backTipping(column)
+        initialSum = `SUM(${backtipped})` 
+        if(alias != null) {
+            const backtippedAlias = QueryBuilder.backTipping(alias)
+            initialSum += ` AS ${backtippedAlias}`
+        }
+        this.param.__sum = initialSum
+        return new Queries(this.param)
+    }
+
+    /** AVG Aggreagate */
+    public static AVG( { column, alias }: { column:string, alias?:string } ): Queries {
+        let initialAvg:string = ''
+        const backtipped = QueryBuilder.backTipping(column)
+        initialAvg = `AVG(${backtipped})` 
+        if(alias != null) {
+            const backtippedAlias = QueryBuilder.backTipping(alias)
+            initialAvg += ` AS ${backtippedAlias}`
+        }
+        this.param.__sum = initialAvg
+        return new Queries(this.param)
+    }
+
+    /** MIN Aggreagate */
+    public static MIN( { column, alias }: { column:string, alias?:string } ): Queries {
+        let initialMin:string = ''
+        const backtipped = QueryBuilder.backTipping(column)
+        initialMin = `MIN(${backtipped})` 
+        if(alias != null) {
+            const backtippedAlias = QueryBuilder.backTipping(alias)
+            initialMin += ` AS ${backtippedAlias}`
+        }
+        this.param.__sum = initialMin
+        return new Queries(this.param)
+    }
+
+    /** MAX Aggreagate */
+    public static MAX( { column, alias }: { column:string, alias?:string } ): Queries {
+        let initialMax:string = ''
+        const backtipped = QueryBuilder.backTipping(column)
+        initialMax = `MAX(${backtipped})` 
+        if(alias != null) {
+            const backtippedAlias = QueryBuilder.backTipping(alias)
+            initialMax += ` AS ${backtippedAlias}`
+        }
+        this.param.__sum = initialMax
+        return new Queries(this.param)
+    }
+
+    /** DISTINCT Aggreagate WITH OUT SELECT STATEMENT, eg: COUNT(DISTINCT song_name) */
+    public static DISTINCT( { column, alias }: { column:string, alias?:string } ): Queries {
+        let intial:string = ''
+        const backtipped = QueryBuilder.backTipping(column)
+        intial = `DISTINCT ${backtipped}` 
+        if(alias != null) {
+            const backtippedAlias = QueryBuilder.backTipping(alias)
+            intial += ` AS ${backtippedAlias}`
+        }
+        this.param.__distinct = intial
+        return new Queries(this.param)
+    }
+
     public get param() {
         return this.param
     }
@@ -163,13 +239,32 @@ export class Queries
 {
     constructor(private param:QueryBuilderHelperType) {}
 
-    transform(){
-        const filtered = Object.fromEntries(
-            Object.entries(this.param).filter(([_, value]) => value !== null)
-        );
+    transform(): string|null {
+        const filtered = Object.fromEntries( Object.entries(this.param).filter(([_, value]) => value !== null) );
         const keys = Object.keys(filtered)
-        if(keys.length == 1) {
-            return filtered[keys[0]]
-        }
+        if(keys.length == 1) return filtered[keys[0]]
+        const transformedQueries: string[] = new Array
+        for(let k in filtered) { transformedQueries.push(`(${filtered[k]})`) }
+        return transformedQueries.length > 1 ? transformedQueries.join(', ') : transformedQueries.toString()
     }
 }
+
+/** All of the available clause operators. */
+export const operator: string[] = [
+    '=', '<', '>', '<=', '>=', '<>', '!=', '<=>',
+    'like', 'like binary', 'not like', 'ilike',
+    '&', '|', '^', '<<', '>>', '&~', 'is', 'is not',
+    'rlike', 'not rlike', 'regexp', 'not regexp',
+    '~', '~*', '!~', '!~*', 'similar to', 'in',
+    'not in', 'not similar to', 'not ilike', '~~*',
+    '!~~*'
+] as const
+export type BasicOperator = typeof operator[number] | Uppercase<typeof operator[number]>
+
+/** All of the available bitwise operator */
+export const bitwiseOperator : string[] = [ 
+    '&', '|', '^', '<<', '>>', '&~'
+ ] as const
+export type BitwiseOperator = typeof bitwiseOperator[number] | Uppercase<typeof bitwiseOperator[number]>
+
+export type Operator = BasicOperator | BitwiseOperator

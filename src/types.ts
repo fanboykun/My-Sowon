@@ -4,18 +4,18 @@ export type DatabaseConfiguration = {
     QueryValue : QueryHolder,
 }
 export interface QueryHolder {
-    table: string;
-    select:Array<string|null>|string,
-    order?:Array<string|null>|string,
+    select?:Array<string|null>|string,
+    table?: string;
+    join?:JoinType
+    where?:Array<string|null>,
     group?:Array<string|null>|string,
+    order?:Array<string|null>|string,
+    limit?:number,
+    offset?:number,
     insert?:Array<string|null>,
     update?:Array<string|null>,
     delete?:Array<string|null>,
-    limit?:number,
-    offset?:number,
-    where?:Array<string|null>,
     param?:Array<any|null>,
-    join?:JoinType
 }
 type JoinType = {
     inner?:string|null
@@ -38,9 +38,19 @@ export type DeleteOption = {
     softDelete?: boolean
     softDeleteColumn?: string
 }
-
+export type SowonConfiguration = {
+    options?: DatabaseConfig,
+    connectionType? : ConnectionType
+    QueryValue?: QueryHolder,
+    shouldConnect?: boolean
+}
 export type QueryBuilderHelperType = {
     __count?: string
+    __sum?: string
+    __avg?: string
+    __min?: string
+    __max?: string
+    __distinct?:string
 }
 
 export type ConnectionType = "NORMAL" | "POOL"
