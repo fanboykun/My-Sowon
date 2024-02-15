@@ -1,12 +1,15 @@
+import { AVG, COUNT, MAX, MIN } from "./aggregate_query";
 import { Database }  from "./database";
-import { AggregateQuery } from "./helper";
 import { SubQueryInterface } from "./sub_query";
 
+const DB = () : Database => {
+    return new Database();
+} 
+
 async function testSelect(): Promise<void> {
-    const db = new Database();
 
     const selectAll = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('*')
         .all()
         .catch((err) => {
@@ -15,7 +18,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectAliases = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('id', 'song_name as n', 'release_year year')
         .all()
         .catch((err) => {
@@ -24,7 +27,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectWhere = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('id', 'song_name as n', 'release_year year')
         .where('id', '=', 8)
         .all()
@@ -34,7 +37,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectWhereIn = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('id', 'song_name as n', 'release_year year')
         .where('id', 'in', [20, 21, null, ''])
         .all()
@@ -44,7 +47,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectWhereLike = async (value:unknown) => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('id', 'song_name as n', 'release_year year')
         .where('song_name', 'like', `%${value}%`)
         .all()
@@ -54,7 +57,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectOrWhere = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('id', 'song_name as n', 'release_year year')
         .where('id', '=', 8)
         .orWhere('id', '<=', 20)
@@ -66,7 +69,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectSubWhere = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('*')
         .where('id', '>=', 10)
         .where((query: SubQueryInterface) => {
@@ -80,7 +83,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectOrderBy = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('*')
         .orderBy('id', 'DESC')
         .all()
@@ -90,7 +93,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectLimit = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('*')
         .get(5)
         .catch((err) => {
@@ -99,7 +102,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectOffset = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('*')
         .orderBy('release_year', "DESC")
         .limit(5, 10)
@@ -109,7 +112,7 @@ async function testSelect(): Promise<void> {
         })
     }
     const selectGroup = async () => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('release_year', 'song_name')
         // .where('album_id', '>', 0)
         .groupBy('release_year')
@@ -124,7 +127,7 @@ async function testSelect(): Promise<void> {
 
     const SelectSubQuery = async () => {
         try {
-            return db.table('songs')
+            return DB().table('songs')
             .select( "song_name", [ (query: Database) => {
                 return query.table('albums')
                 .select('album_name')
@@ -141,8 +144,35 @@ async function testSelect(): Promise<void> {
         }
     }
     const selectCount = async () => {
-        return db.table('songs')
-        .select(AggregateQuery.COUNT({ alias:'count' }))
+        return DB().table('songs')
+        .select(COUNT({ alias:'count' }))
+        .all()
+        .catch((err) => {
+            console.log(err)
+            return null
+        })    
+    }
+    const selectMin = async () => {
+        return DB().table('songs')
+        .select(MIN({ column: 'release_year', alias:'min_release_year' }))
+        .all()
+        .catch((err) => {
+            console.log(err)
+            return null
+        })    
+    }
+    const selectMax = async () => {
+        return DB().table('songs')
+        .select(MAX({ column: 'release_year', alias:'max_release_year' }))
+        .all()
+        .catch((err) => {
+            console.log(err)
+            return null
+        })    
+    }
+    const selectAvg = async () => {
+        return DB().table('songs')
+        .select(AVG({ column: 'release_year', alias:'avg_release_year' }))
         .all()
         .catch((err) => {
             console.log(err)
@@ -150,7 +180,7 @@ async function testSelect(): Promise<void> {
         })    
     }
     const selectJoin = async() => {
-        return db.table('songs')
+        return DB().table('songs')
         .select('songs.*', 'alb.album_name alb_name')
         .leftJoin( { table: 'albums', tableAlias: 'alb', foreignKey:'songs.album_id', localKey:'alb.id' } )
         .where('songs.album_id', '!=', '')
@@ -162,12 +192,10 @@ async function testSelect(): Promise<void> {
     }
 
     const result = await SelectSubQuery()
-    console.log(result)
 }
 
 async function testCreate() : Promise<void> {
-    const db = new Database();
-    const query = await db.table('songs')
+    const query = await DB().table('songs')
     .create({song_name: "kingslayer", release_year: "2026"})
     // .logQuery()
     .run()
@@ -179,8 +207,7 @@ async function testCreate() : Promise<void> {
 }
 
 async function testInsert() : Promise<void> {
-    const db = new Database();
-    const result = await db.table('songs')
+    const result = await DB().table('songs')
     .insert(["song_name", "release_year"], [
             ["yayan", 2020],
             ["yapan", 2021],
@@ -197,8 +224,7 @@ async function testInsert() : Promise<void> {
 }
 
 async function testUpdate() : Promise<void> {
-    const db = new Database();
-    const result = await db.table('songs')
+    const result = await DB().table('songs')
     .update({"song_name" : "dancing", "release_year": 2021})
     .where('id', '=', 33)
     // .logQuery()
@@ -211,8 +237,7 @@ async function testUpdate() : Promise<void> {
 }
 
 async function testDelete() : Promise<void> {
-    const db = new Database();
-    const result = await db.table('songs')
+    const result = await DB().table('songs')
     .delete({ softDelete: false })
     .where('id', '=', 33)
     // .logQuery()

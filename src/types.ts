@@ -1,3 +1,6 @@
+import { Queries } from "./helper";
+import { bitwiseOperator, operator } from "./validations";
+
 export type DatabaseConfiguration = {
     options?: DatabaseConfig,
     connectionType?: "NORMAL"|"POOL",
@@ -38,13 +41,15 @@ export type DeleteOption = {
     softDelete?: boolean
     softDeleteColumn?: string
 }
+
 export type SowonConfiguration = {
     options?: DatabaseConfig,
     connectionType? : ConnectionType
     QueryValue?: QueryHolder,
     shouldConnect?: boolean
 }
-export type QueryBuilderHelperType = {
+
+export type AggregateQueryPropertyType = {
     __count?: string
     __sum?: string
     __avg?: string
@@ -53,7 +58,11 @@ export type QueryBuilderHelperType = {
     __distinct?:string
 }
 
+export type Operator = BasicOperator | BitwiseOperator
+export type BasicOperator = typeof operator[number] | Uppercase<typeof operator[number]>
+export type BitwiseOperator = typeof bitwiseOperator[number] | Uppercase<typeof bitwiseOperator[number]>
+
 export type ConnectionType = "NORMAL" | "POOL"
 export type QueryType = "SELECT" | "CREATE" | "INSERT" | "UPDATE" | "DELETE" | "SUBQUERY"
-export type SelectParam = string[] | Function;
+export type SelectType = string|Queries|Function|[Function, string]
 export type JoinTypes = "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "NATURAL"

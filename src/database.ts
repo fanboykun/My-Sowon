@@ -1,18 +1,17 @@
 import mysql, { Connection, Pool, RowDataPacket } from "mysql2"
 import { InitialQuery, config }  from "./config"
 import { 
-    ConnectionType,
     DatabaseConfig,
-    DatabaseConfiguration,
     DeleteOption,
     JoinTypes,
     QueryHolder,
     QueryType,
-    SelectParam,
+    SelectType,
     SowonConfiguration
 } from "./types"
 import { SubQuery } from "./sub_query"
-import { Operator, Queries, QueryBuilder } from "./helper"
+import { Queries, QueryHelper } from "./helper"
+import { Operator } from "./types"
 import { ValidateQuery } from "./validations"
 
 export class Database
@@ -45,7 +44,8 @@ export class Database
                     this.connection = this.pool()
                 }
             }
-            this.QUERY = QueryValue != null ? QueryValue : InitialQuery
+            // this.QUERY = QueryValue != null ? QueryValue : InitialQuery
+            this.QUERY = QueryValue != null ? QueryValue : {...InitialQuery}
         }catch(err) {
             // throw(err)
             throw("Could't Connect To Database")
@@ -97,36 +97,28 @@ export class Database
             let strSelect = '*'
             if(QUERY.select == '*' || QUERY.select == ' * ') {
                 statement += 'SELECT ' + strSelect // apply column select
-                statement += ` FROM ${QueryBuilder.backTipping(QUERY.table)}` // apply table select
+                statement += ` FROM ${QueryHelper.backTipping(QUERY.table)}` // apply table select
             }else {
                 const selectField = [...QUERY.select]
                 selectField.map((col : string|Array<string>|Queries|Database, index: number) => {
-                    
-                    // let hasModified = false
                     let generatedSelect = ''
-
                     if(typeof col == 'object') {
                         if(col instanceof Queries) {
                             generatedSelect += col.transform()
-                            // hasModified = true
                         }else if(col instanceof Database){
-                            generatedSelect += col.generateStatement(col.QUERY, "SELECT")
-                            // hasModified = true
-                        }else {
-                            if( col.length != 0) {
-                                generatedSelect += col.length == 2 ? `(${col[0]}) AS ${QueryBuilder.backTipping(col[1])}` : `(${col}) AS sub_query_column` 
-                                // hasModified = true
-                            }
+                            generatedSelect += col.generateStatement(col.getQueryBinding(), "SELECT")
+                        }else if(col instanceof Array && col.length != 0) {
+                            generatedSelect += col.length == 2 ? `(${col[0]}) AS ${QueryHelper.backTipping(col[1])}` : `(${col}) AS sub_query_column` 
                         }
                     }else if(typeof col == 'string') {
-                        generatedSelect = QueryBuilder.backTipping(col)
+                        generatedSelect = QueryHelper.backTipping(col)
                     }
 
                     index == 0 ? strSelect = generatedSelect : strSelect += ',' + generatedSelect // apply column select
                 })
 
                 statement += `SELECT ${strSelect}` // apply select statement
-                statement += ` FROM ${QueryBuilder.backTipping(QUERY.table)}` // apply table select
+                statement += ` FROM ${QueryHelper.backTipping(QUERY.table)}` // apply table select
             }
         }
         // join generation
@@ -143,7 +135,7 @@ export class Database
 
         if(QueryType === "SUBQUERY") {
             const selectField = [...QUERY.select]
-            statement += selectField.map((v) => { return `${QueryBuilder.backTipping(v)}` })
+            statement += selectField.map((v) => { return `${QueryHelper.backTipping(v)}` })
             if(QUERY.where.length > 0) { statement += ` WHERE ${QUERY.where.join(' ')} ` } // apply where 
         }
 
@@ -221,9 +213,7 @@ export class Database
         return new Promise((resolve, reject) => {
             try {
                 this.connection?.query<RowDataPacket[]>(statement, parameter, (err, result) => {
-                    if(err) {
-                        reject(err)
-                    }
+                    if(err) reject(err)
                     resolve(result)
                 }) 
             } catch (err) {
@@ -236,8 +226,18 @@ export class Database
     }
 
     // Query Holder Getter
-    getHoldQuery(key : keyof QueryHolder): unknown {
+    getHoldQuery(key : keyof QueryHolder) {
         return this.QUERY[key] ?? null
+    }
+
+    // Parameter Binding Getter
+    getParam(): any[] {
+        return this.QUERY.param
+    }
+
+    // Query Binding Getter
+    getQueryBinding(): QueryHolder {
+        return this.QUERY
     }
 
     /** Directly pass your own query */
@@ -261,7 +261,7 @@ export class Database
 
     /** Reset the QueryHolder value */
     private reset() : void {
-        this.QUERY = InitialQuery
+        this.QUERY = {...InitialQuery}
     }
 
     /** Select the table to perform the query, must needed */
@@ -276,7 +276,8 @@ export class Database
     }
 
     /** Write SELECT statement, place '*' for selecting all column. Or don't use this method at all because the default select is ' * ' */
-    select(...column : Array<string|Queries|Function|[Function, string]>) : Database {
+    // select(...column : Array<string|Queries|Function|[Function, string]>) : Database {
+    select(...column : Array<SelectType>) : Database {
         // [Function, string]
         const finalSelectColumn = new Array
         // Check if one of the argument is a function
@@ -291,10 +292,7 @@ export class Database
                 if (typeof col === 'function') {
                     const transformedSubQuery = this.subQuery(col)
                     finalSelectColumn.push(transformedSubQuery)
-                }else if( typeof col === 'string' ) {
-                    // filter column to return string only, used this outside the loop
-                    finalSelectColumn.push(col)
-                }else {
+                }else { // expect the rest input type is string or an instance of Query, then just push it
                     finalSelectColumn.push(col)
                 }
             }
@@ -315,7 +313,7 @@ export class Database
         // check if the column is in the select
         // this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
 
-        const [whereStatement, parameter] = QueryBuilder.generateWhere(colum, operator, value, this.QUERY.where.length)
+        const [whereStatement, parameter] = QueryHelper.generateWhere(colum, operator, value, this.QUERY.where.length)
         this.QUERY.where.push(whereStatement)
         this.QUERY.param.push(parameter)
         
@@ -340,7 +338,7 @@ export class Database
         // check if the column is in the select
         this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
 
-        const [whereStatement, parameter] = QueryBuilder.generateOrWhere(colum, operator, value)
+        const [whereStatement, parameter] = QueryHelper.generateOrWhere(colum, operator, value)
         this.QUERY.where.push(whereStatement)
         this.QUERY.param.push(parameter)
 
@@ -371,10 +369,10 @@ export class Database
     private join( { type, table, tableAlias, foreignKey, localKey } : { type:JoinTypes, table:string, tableAlias?:string, foreignKey:string, localKey:string } ) : Database{
         if(typeof table == 'undefined') throw("reference table is required")
         if(this.QUERY.join[type] != null) throw(`${type?.toUpperCase()} join has already defined`)
-        const transformedForeignKey = QueryBuilder.backTipping(foreignKey)
-        const transformedlocalKey = QueryBuilder.backTipping(localKey)
+        const transformedForeignKey = QueryHelper.backTipping(foreignKey)
+        const transformedlocalKey = QueryHelper.backTipping(localKey)
         let joinStatement = `${type} JOIN ${table} `
-        if(tableAlias != null) joinStatement += `AS ${QueryBuilder.backTipping(tableAlias)} `
+        if(tableAlias != null) joinStatement += `AS ${QueryHelper.backTipping(tableAlias)} `
         joinStatement += `ON ${transformedForeignKey} = ${transformedlocalKey}`
         this.QUERY.join[type] = joinStatement
         return this
@@ -396,37 +394,26 @@ export class Database
     }
 
     /** Generate Sub Query Instance */
-    private subQuery(func : Function, alias?:string): string[] {
-        if (typeof func === 'function') {
-                // If the last parameter is a function, remove it from the list
-            const callback = func as Function;
-
-            //OLD WAY
-            // const selectSubQuery = new SubQuery(this.QUERY, true)
-            // const sub_query_callback = callback( selectSubQuery );
-            // const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
-            // finalSelectColumn.push([sub_queries])
-            
-            // NEW WAY
-            const queryBinding : QueryHolder = {
-                table: null,
-                select: [],
-                where: [],
-                param: []
-            }
-            const newDatabaseInstance = new Database({  QueryValue : queryBinding, shouldConnect : false })
-            const subQueryInstance : Database = callback( newDatabaseInstance );
-            const generatedSubQuery = subQueryInstance.generateStatement(subQueryInstance.QUERY, "SELECT")
-            const subQueryParam = subQueryInstance.QUERY.param
-            if( subQueryParam.length > 0 ){ this.QUERY.param.push(...subQueryParam ) }
-            const finalSubQuery = new Array
-            finalSubQuery.push(generatedSubQuery)
-            if(alias != null) { finalSubQuery.push(alias) }
-            return finalSubQuery
-            // return [generatedSubQuery]
-            // let modified = `(${generatedSubQuery.toString()}) AS \`subq\`` 
-            // return modified
+    private subQuery(callback : Function, alias?:string): string[] {
+        const queryBinding : QueryHolder = {
+            table: null,
+            select: [],
+            where: [],
+            param: []
         }
+        const newDatabaseInstance = new Database({  QueryValue : queryBinding, shouldConnect : false })
+        const subQueryInstance : Database = callback( newDatabaseInstance );
+        const generatedSubQuery = subQueryInstance.generateStatement(subQueryInstance.getQueryBinding(), "SELECT")
+        const subQueryParam = subQueryInstance.getParam()
+        if( subQueryParam.length > 0 ){ this.QUERY.param.push(...subQueryParam ) }
+        const finalSubQuery = new Array
+        finalSubQuery.push(generatedSubQuery)
+        if(alias != null) { 
+            finalSubQuery.push(alias)
+        } else {
+
+        }
+        return finalSubQuery
     }
 
     /** Sort Method */
@@ -450,7 +437,7 @@ export class Database
     groupBy(column:string) : Database {
         this.QueryValidator.validateTableSelected(this.QUERY.table)
         this.QueryValidator.validateWhereColumnIsInSelect(column, this.QUERY.select)
-        this.QUERY.group = QueryBuilder.backTipping(column)
+        this.QUERY.group = QueryHelper.backTipping(column)
         return this
     }
 

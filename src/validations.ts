@@ -1,4 +1,20 @@
-import { Operator, bitwiseOperator } from "./helper";
+import { Operator } from "./types";
+
+/** All of the available clause operators. */
+export const operator: string[] = [
+    '=', '<', '>', '<=', '>=', '<>', '!=', '<=>',
+    'like', 'like binary', 'not like', 'ilike',
+    '&', '|', '^', '<<', '>>', '&~', 'is', 'is not',
+    'rlike', 'not rlike', 'regexp', 'not regexp',
+    '~', '~*', '!~', '!~*', 'similar to', 'in',
+    'not in', 'not similar to', 'not ilike', '~~*',
+    '!~~*'
+] as const
+
+/** All of the available bitwise operator */
+export const bitwiseOperator : string[] = [ 
+    '&', '|', '^', '<<', '>>', '&~'
+ ] as const
 
 export class ValidateQuery
 {
