@@ -122,25 +122,24 @@ async function testSelect(): Promise<void> {
         })
     }
 
-    // const SelectSubQuery = async () => {
-    //     try {
-    //         return db.table('songs')
-    //         .select( "song_name", (query: SubQueryInterface) => {
-    //             return query.select('album_id')
-    //             .where('album_id', '>', 1)
-    //         })
-    //         // .logQuery()
-    //         .all()
-    //         .catch((err) => {
-    //             console.log(err)
-    //             return null
-    //         })
-    //     }catch(err) {
-    //         console.log(err)
-    //         return null
-    //     }
-    // }
-
+    const SelectSubQuery = async () => {
+        try {
+            return db.table('songs')
+            .select( "song_name", [ (query: Database) => {
+                return query.table('albums')
+                .select('album_name')
+                .where('id', '=', 31)
+            }, "album_name" ])
+            .all()
+            .catch((err) => {
+                console.log(err)
+                return null
+            })
+        }catch(err) {
+            console.log(err)
+            return null
+        }
+    }
     const selectCount = async () => {
         return db.table('songs')
         .select(AggregateQuery.COUNT({ alias:'count' }))
@@ -162,7 +161,7 @@ async function testSelect(): Promise<void> {
         })    
     }
 
-    const result = await selectJoin()
+    const result = await SelectSubQuery()
     console.log(result)
 }
 

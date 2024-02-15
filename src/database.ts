@@ -102,20 +102,20 @@ export class Database
                 const selectField = [...QUERY.select]
                 selectField.map((col : string|Array<string>|Queries|Database, index: number) => {
                     
-                    let hasModified = false
+                    // let hasModified = false
                     let generatedSelect = ''
 
                     if(typeof col == 'object') {
                         if(col instanceof Queries) {
                             generatedSelect += col.transform()
-                            hasModified = true
+                            // hasModified = true
                         }else if(col instanceof Database){
                             generatedSelect += col.generateStatement(col.QUERY, "SELECT")
-                            hasModified = true
+                            // hasModified = true
                         }else {
                             if( col.length != 0) {
-                                generatedSelect += '(' + col + ')'
-                                hasModified = true
+                                generatedSelect += col.length == 2 ? `(${col[0]}) AS ${QueryBuilder.backTipping(col[1])}` : `(${col}) AS sub_query_column` 
+                                // hasModified = true
                             }
                         }
                     }else if(typeof col == 'string') {
@@ -276,35 +276,27 @@ export class Database
     }
 
     /** Write SELECT statement, place '*' for selecting all column. Or don't use this method at all because the default select is ' * ' */
-    select(...column : Array<string|Queries>) : Database {
+    select(...column : Array<string|Queries|Function|[Function, string]>) : Database {
+        // [Function, string]
         const finalSelectColumn = new Array
         // Check if one of the argument is a function
         for(let i = 0; i < column.length; i++){
             const col : unknown = column[i]
-            if (typeof col === 'function') {
-                    // If the last parameter is a function, remove it from the list
-                const callback = col as Function;
-    
-                //OLD WAY
-                // const selectSubQuery = new SubQuery(this.QUERY, true)
-                // const sub_query_callback = callback( selectSubQuery );
-                // const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
-                // finalSelectColumn.push([sub_queries])
-                
-                // NEW WAY
-                const newDatabaseInstance = new Database({ shouldConnect : false })
-                const subQueryInstance : Database = callback( newDatabaseInstance );
-                const generatedSUbQuery = subQueryInstance.generateStatement(subQueryInstance.QUERY, "SUBQUERY")
-                finalSelectColumn.push([generatedSUbQuery])
-            }else if( typeof col === 'string' ) {
-                // Process columns as usual
-                finalSelectColumn.push(col)
-
-                // filter column to return string only, used this outside the loop
-                // const columns = column.filter(param => typeof param === 'string') as string[];
-                // finalSelectColumn.push(...columns)
-            }else {
-                finalSelectColumn.push(col)
+            if(col instanceof  Array) {
+                if ( col.length == 2 && typeof col[0] === 'function' ) {
+                    const transformedSubQuery = this.subQuery(col[0], col[1])
+                    finalSelectColumn.push(transformedSubQuery)
+                }
+            }else{
+                if (typeof col === 'function') {
+                    const transformedSubQuery = this.subQuery(col)
+                    finalSelectColumn.push(transformedSubQuery)
+                }else if( typeof col === 'string' ) {
+                    // filter column to return string only, used this outside the loop
+                    finalSelectColumn.push(col)
+                }else {
+                    finalSelectColumn.push(col)
+                }
             }
         }
         this.QUERY.select = finalSelectColumn
@@ -321,7 +313,7 @@ export class Database
         this.QueryValidator.validateTableSelected(this.QUERY.table)
 
         // check if the column is in the select
-        this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
+        // this.QueryValidator.validateWhereColumnIsInSelect(colum, this.QUERY.select)
 
         const [whereStatement, parameter] = QueryBuilder.generateWhere(colum, operator, value, this.QUERY.where.length)
         this.QUERY.where.push(whereStatement)
@@ -401,6 +393,40 @@ export class Database
             this.QUERY.where.push(`( ${advancedWhereStatement.SUBQUERY.where.join(' ')} )`)
         }
         return this
+    }
+
+    /** Generate Sub Query Instance */
+    private subQuery(func : Function, alias?:string): string[] {
+        if (typeof func === 'function') {
+                // If the last parameter is a function, remove it from the list
+            const callback = func as Function;
+
+            //OLD WAY
+            // const selectSubQuery = new SubQuery(this.QUERY, true)
+            // const sub_query_callback = callback( selectSubQuery );
+            // const sub_queries = this.generateStatement(sub_query_callback.SUBQUERY, "SUBQUERY")
+            // finalSelectColumn.push([sub_queries])
+            
+            // NEW WAY
+            const queryBinding : QueryHolder = {
+                table: null,
+                select: [],
+                where: [],
+                param: []
+            }
+            const newDatabaseInstance = new Database({  QueryValue : queryBinding, shouldConnect : false })
+            const subQueryInstance : Database = callback( newDatabaseInstance );
+            const generatedSubQuery = subQueryInstance.generateStatement(subQueryInstance.QUERY, "SELECT")
+            const subQueryParam = subQueryInstance.QUERY.param
+            if( subQueryParam.length > 0 ){ this.QUERY.param.push(...subQueryParam ) }
+            const finalSubQuery = new Array
+            finalSubQuery.push(generatedSubQuery)
+            if(alias != null) { finalSubQuery.push(alias) }
+            return finalSubQuery
+            // return [generatedSubQuery]
+            // let modified = `(${generatedSubQuery.toString()}) AS \`subq\`` 
+            // return modified
+        }
     }
 
     /** Sort Method */
